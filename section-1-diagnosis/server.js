@@ -9,6 +9,7 @@ loadEnv();
 import express from "express";
 import { fetchTelemetry, toUi, buildEvidence } from "./telemetry.js";
 import { triageComplete, tierInfo } from "./near-client.js";
+import { verifyAttestation, verifyReplySignature, attestationMode, VerificationError } from "./attestation.js";
 import { SYSTEM_PROMPT, RETRY_NUDGE, buildUserPrompt, parseReport } from "./prompt.js";
 import { SCENARIOS, seedScenario } from "./seed/scenarios.js";
 
@@ -30,6 +31,7 @@ app.get("/api/health", async (_req, res) => {
     keyConfigured: Boolean(process.env.NEARAI_API_KEY),
     model: process.env.NEAR_MODEL || "z-ai/glm-5.3-flash",
     tier: tierInfo.tier,
+    attestationMode: attestationMode(),
     jaeger: j.status === "fulfilled" && j.value.ok ? "ok" : "unreachable",
     prometheus: p.status === "fulfilled" && p.value.ok ? "ok" : "unreachable",
     collector: c.status === "fulfilled" && c.value.ok ? "ok" : "unreachable",
@@ -75,6 +77,8 @@ app.post("/api/telemetry", async (req, res) => {
 
 app.post("/api/triage", async (req, res) => {
   const started = Date.now();
+  let attestation = null;
+  const signatures = [];
   try {
     const { service = "checkout", sinceMinutes = 30, maxTraces = 20, bundle } = req.body || {};
 
@@ -89,6 +93,10 @@ app.post("/api/triage", async (req, res) => {
     }
     const evidenceChars = JSON.stringify(evidence).length;
     const userPrompt = buildUserPrompt(evidence);
+
+    // Design step 4: verify NEAR AI attestation with a fresh nonce BEFORE any
+    // evidence leaves this process. In strict mode a failed check throws here.
+    attestation = await verifyAttestation();
 
     // One retry-nudge if the model doesn't return clean JSON; then degrade to raw text.
     let report = null;
@@ -110,6 +118,8 @@ app.post("/api/triage", async (req, res) => {
               { role: "user", content: RETRY_NUDGE },
             ];
       lastResult = await triageComplete(messages);
+      // Design step 5: check the signature on every reply (strict mode throws).
+      signatures.push(await verifyReplySignature(lastResult, attestation));
       rawText = lastResult.content;
       report = parseReport(rawText);
     }
@@ -126,6 +136,8 @@ app.post("/api/triage", async (req, res) => {
         modelMs: lastResult?.elapsedMs,
         totalMs: Date.now() - started,
         parsed: Boolean(report),
+        attestationVerified: attestation.verified,
+        signaturesVerified: signatures.every((s) => s.verified),
       }),
     );
 
@@ -141,14 +153,21 @@ app.post("/api/triage", async (req, res) => {
         usage: lastResult?.usage,
         modelMs: lastResult?.elapsedMs,
         attempts,
-        attestation: lastResult?.meta,
+        verification: { mode: attestation.mode, attestation, signatures },
         scope:
-          "Only the model call is private: it ran inside a Confidential TEE. This server stores nothing — evidence existed only for this request and was never written to disk or logs.",
+          (attestation.verified
+            ? "Only the model call is private: it ran on a Confidential TEE node whose attestation and reply signatures were verified for this request. "
+            : `Only the model call is private, and for this request that is NOT verified (ATTESTATION_MODE=${attestation.mode}): the tier is claimed, not proven. `) +
+          "This server stores nothing — evidence existed only for this request and was never written to disk or logs.",
       },
     });
   } catch (e) {
     console.log(JSON.stringify({ at: new Date().toISOString(), route: "triage", error: sanitize(e.message).slice(0, 120) }));
-    res.status(502).json({ error: sanitize(e.message) });
+    const verification =
+      e instanceof VerificationError
+        ? { mode: attestationMode(), attestation: attestation || e.verification, signatures: attestation ? [...signatures, e.verification] : [] }
+        : undefined;
+    res.status(502).json({ error: sanitize(e.message), verification });
   }
 });
 

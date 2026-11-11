@@ -104,7 +104,11 @@ async function run(mode) {
   btn.disabled = true;
   try {
     const r = await post("/api/triage", body);
-    if (r.error) throw new Error(r.error);
+    if (r.error) {
+      // A failed attestation/signature check still shows WHICH check failed.
+      if (r.verification) renderPrivacy({ privacy: { verification: r.verification, scope: "Stopped: verification failed, so the report was withheld." } });
+      throw new Error(r.error);
+    }
     if (r.telemetry) renderTelemetry(r.telemetry);
     renderReport(r);
     renderPrivacy(r);
@@ -234,15 +238,36 @@ function renderReport(r) {
 
 // --- render: privacy -------------------------------------------------------------
 
+function renderChecks(title, checks) {
+  const icon = { pass: "✓", fail: "✗", warn: "!", skip: "–" };
+  const rows = (checks || [])
+    .map(
+      (c) => `<li class="chk ${esc(c.status)}"><span class="mono">${icon[c.status] || "?"}</span> <b>${esc(c.name)}</b>
+        <span class="muted">${esc(c.detail || "")}</span></li>`,
+    )
+    .join("");
+  return `<h3>${esc(title)}</h3><ul class="checks">${rows}</ul>`;
+}
+
 function renderPrivacy(r) {
   const p = r.privacy || {};
-  const attest = p.attestation
-    ? `<h3>attestation receipt</h3><pre class="raw">${esc(JSON.stringify(p.attestation, null, 2))}</pre>`
-    : `<h3>response metadata</h3>
-       <p class="muted">This API response did not carry attestation fields — showing what it did carry. The tier below is the guarantee.</p>
-       <pre class="raw">${esc(
-         JSON.stringify({ model: p.model, responseId: p.responseId, usage: p.usage, modelMs: p.modelMs, attempts: p.attempts }, null, 2),
-       )}</pre>`;
+  const v = p.verification;
+  let attest = "";
+  if (v) {
+    const a = v.attestation || {};
+    const badge = a.verified
+      ? '<span class="vbadge ok">attestation verified</span>'
+      : `<span class="vbadge bad">NOT verified · mode ${esc(v.mode)}</span>`;
+    attest = `<div>${badge}</div>
+      ${renderChecks("attestation (before any data was sent)", a.checks)}
+      ${(v.signatures || []).map((s, i) => renderChecks(`reply signature #${i + 1}`, s.checks)).join("")}
+      ${a.reportSha256 ? `<p class="muted mono">attestation report sha256 ${esc(a.reportSha256)}</p>` : ""}`;
+  }
+  if (p.model) {
+    attest += `<h3>response metadata</h3><pre class="raw">${esc(
+      JSON.stringify({ model: p.model, responseId: p.responseId, usage: p.usage, modelMs: p.modelMs, attempts: p.attempts }, null, 2),
+    )}</pre>`;
+  }
 
   $("privacy").innerHTML = `
     <div class="tiers">

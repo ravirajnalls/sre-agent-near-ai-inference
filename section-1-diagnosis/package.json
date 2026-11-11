@@ -12,6 +12,8 @@
     "seed": "node seed/seed-incident.js"
   },
   "dependencies": {
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0",
     "express": "^4.21.2"
   }
 }

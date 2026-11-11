@@ -184,3 +184,14 @@ footer { padding: 14px 22px; border-top: 1px solid var(--border); color: var(--m
   max-width: 420px;
 }
 #toast.show { opacity: 1; transform: none; }
+
+/* verification checks (attestation + reply signatures) */
+.checks { list-style: none; padding: 0; margin: 0 0 12px; font-size: 12px; }
+.chk { padding: 3px 0; }
+.chk .mono { display: inline-block; width: 1.2em; font-weight: 700; }
+.chk.pass .mono { color: var(--accent); }
+.chk.fail .mono { color: var(--red); }
+.chk.warn .mono, .chk.skip .mono { color: var(--muted); }
+.vbadge { display: inline-block; font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-bottom: 6px; }
+.vbadge.ok { color: var(--accent); border: 1px solid var(--accent); }
+.vbadge.bad { color: var(--red); border: 1px solid var(--red); }
