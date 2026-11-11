@@ -13,18 +13,17 @@ services:
     image: prom/prometheus:v3.16.0
     command:
       - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
       - --web.enable-remote-write-receiver
       - --web.enable-otlp-receiver
       - --web.enable-lifecycle
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      # Metrics live in memory only (tmpfs instead of the image's on-disk volume),
-      # so a restart wipes them (reset-telemetry.sh) and nothing is written to disk.
-      # Mode 1777: Prometheus runs as `nobody` and must be able to write here.
-      - type: tmpfs
-        target: /prometheus
-        tmpfs:
-          mode: 01777
+    # Metrics live in memory only (tmpfs instead of the image's on-disk volume), so a
+    # restart wipes them (reset-telemetry.sh). Owned by `nobody` (uid 65534), the user
+    # Prometheus runs as, or it cannot write there.
+    tmpfs:
+      - /prometheus:uid=65534,gid=65534,mode=0755
     ports:
       - "9090:9090"
 
