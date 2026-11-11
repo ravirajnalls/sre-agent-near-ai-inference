@@ -195,3 +195,17 @@ footer { padding: 14px 22px; border-top: 1px solid var(--border); color: var(--m
 .vbadge { display: inline-block; font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-bottom: 6px; }
 .vbadge.ok { color: var(--accent); border: 1px solid var(--accent); }
 .vbadge.bad { color: var(--red); border: 1px solid var(--red); }
+
+.explain { color: var(--muted); font-size: 12px; line-height: 1.5; margin: -4px 0 12px; }
+.explain b { color: var(--text); font-weight: 600; }
+
+/* chat */
+#chat-log { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; max-height: 420px; overflow-y: auto; }
+.msg { padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.5; max-width: 85%; }
+.msg.user { align-self: flex-end; background: var(--panel2); border: 1px solid var(--border); }
+.msg.agent { align-self: flex-start; border: 1px solid var(--border); }
+.msg .answer { white-space: pre-wrap; }
+.msgmeta { margin-top: 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 11px; }
+.msgmeta .vbadge { margin-bottom: 0; }
+.chatrow { display: flex; gap: 8px; }
+.chatrow input { flex: 1; }

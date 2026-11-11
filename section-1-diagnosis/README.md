@@ -34,7 +34,7 @@ npm test                        # redaction + action-list tests (no network need
 npm start                       # http://localhost:3000
 ```
 
-1. **Click `auth-secrets-leak`** under *Seed a synthetic incident*, then **Fetch telemetry**.
+1. **Click `auth-secrets-leak`** under *Simulate an incident*, then **Fetch telemetry**.
    **See:** the error spans show `[REDACTED:connection_string]`, `[REDACTED:jwt]`, `[REDACTED:credential]`, `[REDACTED:email]` where the seed planted fake secrets. Jaeger (http://localhost:16686) shows the same masked text and `redaction.masked.<kind>` tags: nothing unmasked was ever stored.
 2. **Click Triage privately.**
    **See:** the privacy panel's redaction manifest lists the kinds masked *in the collector* and `0` masked in the server.
@@ -44,10 +44,12 @@ npm start                       # http://localhost:3000
    **See:** one action such as `none` (a credential problem needs a human) or `set_resources prod/inventory-api {...}` for `inventory-crashloop`, marked *valid* or *rejected by the runtime*.
 5. **Paste a bundle** containing a fake secret (e.g. `AUTH_DB_PASSWORD=hunter2 jane@example.com`) and click *Triage pasted bundle*.
    **See:** the manifest shows those kinds masked *in the server*, because paste mode has no collector in front of it.
-6. **Break attestation on purpose:** set `NEAR_BASE_URL` to a wrong host, restart, triage again.
+6. **Ask the SRE agent** a follow-up in the chat under the report, e.g. *why not the database?* Include a fake secret in the question.
+   **See:** your message is shown masked ("masked before sending"), and each answer carries an *attested · signature verified* badge.
+7. **Break attestation on purpose:** set `NEAR_BASE_URL` to a wrong host, restart, triage again.
    **See:** the request stops with *"NEAR AI attestation did not verify — no evidence was sent to the model"* and the failing check is shown.
 
-Four synthetic incidents ship in `seed/scenarios.js`: `payment-db-down` (SEV1), `latency-regression` (SEV2), `inventory-crashloop` (SEV1, OOMKilled), `auth-secrets-leak` (SEV1, planted fake secrets). All telemetry is **synthetic**.
+There is no live production system in the demo, so **Simulate an incident** stands in for one: it pushes a synthetic outage's traces and metrics through the redacting collector, the way real services would. Four synthetic incidents ship in `seed/scenarios.js`: `payment-db-down` (SEV1), `latency-regression` (SEV2), `inventory-crashloop` (SEV1, OOMKilled), `auth-secrets-leak` (SEV1, planted fake secrets). All telemetry is **synthetic**.
 
 ### Verification modes
 
@@ -83,6 +85,7 @@ Also stated plainly in the UI: **only the model call is private.** Your laptop, 
 | POST | `/api/seed` | `{scenario}` — push synthetic OTLP traces + metrics |
 | POST | `/api/telemetry` | `{service, sinceMinutes, maxTraces}` — fetch latest error data |
 | POST | `/api/triage` | `{service, sinceMinutes, maxTraces}` or `{bundle}` — mask → attest → TEE triage → verify signature → validate action → report |
+| POST | `/api/chat` | `{context, history, question}` — follow-up question on a triaged incident; same mask → attest → verify path every turn. The browser holds the masked context and history; the server keeps nothing |
 
 ## How it's built
 

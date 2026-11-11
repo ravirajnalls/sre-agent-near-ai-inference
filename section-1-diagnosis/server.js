@@ -10,7 +10,7 @@ import express from "express";
 import { fetchTelemetry, toUi, buildEvidence } from "./telemetry.js";
 import { triageComplete, tierInfo } from "./near-client.js";
 import { verifyAttestation, verifyReplySignature, attestationMode, VerificationError } from "./attestation.js";
-import { SYSTEM_PROMPT, RETRY_NUDGE, buildUserPrompt, parseReport, validateAction } from "./prompt.js";
+import { SYSTEM_PROMPT, RETRY_NUDGE, CHAT_PROMPT, buildUserPrompt, parseReport, validateAction } from "./prompt.js";
 import { SCENARIOS, seedScenario } from "./seed/scenarios.js";
 import { redactEvidence } from "./redact.js";
 
@@ -157,6 +157,10 @@ app.post("/api/triage", async (req, res) => {
     res.json({
       report,
       actionCheck,
+      // Handed to the browser so follow-up chat needs no server-side state (zero
+      // retention). It is the already-masked evidence plus the report; /api/chat
+      // re-masks all of it again anyway.
+      chatContext: report ? { evidence, report } : null,
       rawText: report ? undefined : rawText,
       telemetry: telemetry ? toUi(telemetry) : null,
       privacy: {
@@ -186,9 +190,79 @@ app.post("/api/triage", async (req, res) => {
   }
 });
 
+// --- chat: follow-up questions on a triaged incident ------------------------
+// Same pipeline as triage for every turn: mask → fresh attestation → TEE model →
+// reply signature. The server keeps nothing between turns; the browser sends the
+// masked incident context and the recent history back with each question.
+
+app.post("/api/chat", async (req, res) => {
+  const started = Date.now();
+  let attestation = null;
+  const signatures = [];
+  try {
+    const { context, history = [], question } = req.body || {};
+    if (typeof question !== "string" || !question.trim()) throw new Error("question is empty");
+    if (!context || typeof context !== "object") throw new Error("no incident context: run a triage first");
+
+    const turns = (Array.isArray(history) ? history : [])
+      .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+      .slice(-8)
+      .map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
+    const { masked, manifest: redaction } = redactEvidence({
+      context: JSON.stringify(context).slice(0, 60_000),
+      turns,
+      question: question.slice(0, 2000),
+    });
+
+    attestation = await verifyAttestation();
+    const messages = [
+      { role: "system", content: CHAT_PROMPT },
+      { role: "user", content: `Incident context (masked evidence and your earlier report, JSON):\n\n${masked.context}` },
+      { role: "assistant", content: "Understood. Ask me about this incident." },
+      ...masked.turns,
+      { role: "user", content: masked.question },
+    ];
+    const result = await triageComplete(messages, { temperature: 0.3 });
+    signatures.push(await verifyReplySignature(result, attestation));
+
+    console.log(
+      JSON.stringify({
+        at: new Date().toISOString(),
+        route: "chat",
+        questionChars: masked.question.length,
+        turns: turns.length,
+        maskedByServer: redaction.totals.server,
+        modelMs: result.elapsedMs,
+        totalMs: Date.now() - started,
+        attestationVerified: attestation.verified,
+        signaturesVerified: signatures.every((s) => s.verified),
+      }),
+    );
+    res.json({
+      answer: result.content,
+      question: masked.question,
+      privacy: {
+        model: result.model,
+        responseId: result.id,
+        modelMs: result.elapsedMs,
+        redaction,
+        verification: { mode: attestation.mode, attestation, signatures },
+      },
+    });
+  } catch (e) {
+    console.log(JSON.stringify({ at: new Date().toISOString(), route: "chat", error: sanitize(e.message).slice(0, 120) }));
+    const verification =
+      e instanceof VerificationError
+        ? { mode: attestationMode(), attestation: attestation || e.verification, signatures: attestation ? [...signatures, e.verification] : [] }
+        : undefined;
+    res.status(e.message?.startsWith("question is empty") || e.message?.startsWith("no incident context") ? 400 : 502)
+      .json({ error: sanitize(e.message), verification });
+  }
+});
+
 const port = Number(process.env.PORT) || 3000;
 app.listen(port, () => {
-  console.log(`Attested Agent Sandbox (section 1) → http://localhost:${port}`);
+  console.log(`SRE Agent (Attested Agent Sandbox, section 1) → http://localhost:${port}`);
   if (!process.env.NEARAI_API_KEY) {
     console.log("NEARAI_API_KEY is not set — triage will fail until you add it to .env");
   }

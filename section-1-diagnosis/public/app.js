@@ -14,6 +14,10 @@ async function boot() {
   $("btn-telemetry").addEventListener("click", () => run("telemetry"));
   $("btn-triage").addEventListener("click", () => run("triage"));
   $("btn-bundle").addEventListener("click", () => run("bundle"));
+  $("btn-chat").addEventListener("click", ask);
+  $("chat-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") ask();
+  });
 }
 
 async function refreshHealth() {
@@ -59,7 +63,7 @@ async function loadScenarios() {
 }
 
 async function seedScenario(id) {
-  toast(`seeding ${id} …`);
+  toast(`simulating ${id} …`);
   try {
     const r = await (await fetch("/api/seed", {
       method: "POST",
@@ -68,7 +72,7 @@ async function seedScenario(id) {
     })).json();
     if (r.error) throw new Error(r.error);
     $("service").value = r.suggestedService || $("service").value;
-    toast(`seeded ${r.scenario} — ${r.tracesPushed} traces, ${r.metricPushes} metric pushes`);
+    toast(`simulated ${r.scenario}: ${r.tracesPushed} traces pushed through the collector — now Fetch telemetry or Triage privately`);
     await refreshHealth();
   } catch (e) {
     toast(`seed failed: ${e.message}`);
@@ -112,6 +116,7 @@ async function run(mode) {
     if (r.telemetry) renderTelemetry(r.telemetry);
     renderReport(r);
     renderPrivacy(r);
+    startChat(r.chatContext);
     $("report-meta").textContent = r.privacy?.modelMs
       ? `${r.privacy.model} · ${(r.privacy.modelMs / 1000).toFixed(1)}s in the TEE`
       : "";
@@ -317,6 +322,73 @@ function renderPrivacy(r) {
     </div>
     ${attest}
     <p class="scope">${esc(p.scope || "")}</p>`;
+}
+
+// --- chat ------------------------------------------------------------------------
+// The browser holds the (already masked) incident context and the history; the
+// server keeps nothing between messages.
+
+let chatContext = null;
+let chatHistory = [];
+
+function startChat(ctx) {
+  chatContext = ctx || null;
+  chatHistory = [];
+  const on = Boolean(chatContext);
+  $("chat-input").disabled = !on;
+  $("btn-chat").disabled = !on;
+  $("chat-log").innerHTML = on
+    ? '<p class="muted">Ask a follow-up question about this incident.</p>'
+    : '<p class="muted">The report did not parse, so there is no context to chat about. Run the triage again.</p>';
+}
+
+function verifyBadge(v) {
+  if (!v) return "";
+  const ok = v.attestation?.verified && (v.signatures || []).every((s) => s.verified);
+  const failed = [...(v.attestation?.checks || []), ...(v.signatures || []).flatMap((s) => s.checks || [])]
+    .filter((c) => c.status === "fail")
+    .map((c) => c.name);
+  return ok
+    ? '<span class="vbadge ok">attested · signature verified</span>'
+    : `<span class="vbadge bad">NOT verified · mode ${esc(v.mode)}${failed.length ? " · " + esc(failed.join(", ")) : ""}</span>`;
+}
+
+function addMsg(role, html) {
+  if (!chatHistory.length && $("chat-log").querySelector(".muted")) $("chat-log").innerHTML = "";
+  const div = document.createElement("div");
+  div.className = `msg ${role}`;
+  div.innerHTML = html;
+  $("chat-log").appendChild(div);
+  div.scrollIntoView({ block: "nearest" });
+  return div;
+}
+
+async function ask() {
+  const q = $("chat-input").value.trim();
+  if (!q || !chatContext) return;
+  $("chat-input").value = "";
+  $("btn-chat").disabled = true;
+  const mine = addMsg("user", esc(q));
+  const pending = addMsg("agent", '<span class="muted">masking → attesting → asking the TEE model …</span>');
+  try {
+    const r = await post("/api/chat", { context: chatContext, history: chatHistory, question: q });
+    if (r.error) {
+      pending.innerHTML = `<p class="err">${esc(r.error)}</p>${verifyBadge(r.verification)}`;
+      return;
+    }
+    // Show the question as the model saw it (masked), so a pasted secret is visibly gone.
+    if (r.question !== q) mine.innerHTML = `${esc(r.question)} <span class="muted">(masked before sending)</span>`;
+    const masked = r.privacy?.redaction?.totals?.server || 0;
+    pending.innerHTML = `<div class="answer">${esc(r.answer)}</div>
+      <div class="msgmeta">${verifyBadge(r.privacy?.verification)}
+        <span class="muted mono">${esc(r.privacy?.model || "")} · ${((r.privacy?.modelMs || 0) / 1000).toFixed(1)}s${masked ? ` · ${masked} value(s) masked` : ""}</span></div>`;
+    chatHistory.push({ role: "user", content: r.question }, { role: "assistant", content: r.answer });
+  } catch (e) {
+    pending.innerHTML = `<p class="err">${esc(e.message)}</p>`;
+  } finally {
+    $("btn-chat").disabled = false;
+    $("chat-input").focus();
+  }
 }
 
 // --- toast -----------------------------------------------------------------------

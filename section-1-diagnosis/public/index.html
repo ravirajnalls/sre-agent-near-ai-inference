@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Attested Agent Sandbox — Section 1: sealed incident diagnosis</title>
+  <title>SRE Agent — Attested Agent Sandbox</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header>
-    <div class="brand"><span class="logo">▲</span> ATTESTED AGENT SANDBOX</div>
-    <div class="tagline">section 1 · sealed incident diagnosis on confidential compute</div>
+    <div class="brand"><span class="logo">▲</span> SRE AGENT</div>
+    <div class="tagline">attested agent sandbox · diagnoses incidents on a verified TEE model without seeing your secrets</div>
     <div class="statusbar">
       <span><span class="dot" id="dot-key"></span>key</span>
       <span><span class="dot" id="dot-collector"></span>collector</span>
@@ -23,6 +23,7 @@
     <aside>
       <section class="card">
         <h2>Incident query</h2>
+        <p class="explain">Which service and time window the agent investigates. It reads error traces from Jaeger and metrics from Prometheus, already masked by the collector.</p>
         <label>service
           <input id="service" value="checkout" spellcheck="false">
         </label>
@@ -48,12 +49,14 @@
       </section>
 
       <section class="card">
-        <h2>Seed a synthetic incident</h2>
+        <h2>Simulate an incident</h2>
+        <p class="explain">There is no live production system in this demo, so these buttons play the outage: each one pushes a synthetic incident's traces and metrics through the redacting collector, exactly as a real service would. Pick one, then Fetch telemetry or Triage privately. <b>auth-secrets-leak</b> plants fake secrets to show the masking.</p>
         <div id="scenarios"><p class="muted">loading…</p></div>
       </section>
 
       <section class="card">
         <h2>Paste a bundle instead</h2>
+        <p class="explain">Already have logs, alerts or kubectl output? Paste them. The server masks secrets before anything reaches the model.</p>
         <textarea id="bundle" rows="6" spellcheck="false"
           placeholder="Paste raw logs, kubectl describe, alerts — triaged through the same TEE call."></textarea>
         <div class="btnrow">
@@ -67,16 +70,29 @@
     <div class="content">
       <section class="card" id="sec-telemetry">
         <h2>1 · Telemetry <span class="muted" id="telemetry-meta"></span></h2>
+        <p class="explain">What the agent will look at: error spans and metric series for the window. Secrets appear as [REDACTED:kind] because the collector masked them before storage.</p>
         <div id="telemetry"><p class="muted">Fetch telemetry to see the latest error data for a service.</p></div>
       </section>
 
       <section class="card" id="sec-report">
-        <h2>2 · Triage report <span class="muted" id="report-meta"></span></h2>
+        <h2>2 · Agent report <span class="muted" id="report-meta"></span></h2>
+        <p class="explain">The agent's diagnosis from the Confidential TEE model: root cause with evidence, blast radius, ranked next steps, and one proposed fix from a fixed list of six action types. Nothing is applied to any cluster.</p>
         <div id="report"><p class="muted">No report yet — pick a service and hit “Triage privately”.</p></div>
       </section>
 
+      <section class="card" id="sec-chat">
+        <h2>Ask the SRE agent</h2>
+        <p class="explain">Follow-up questions about this incident. Every message goes through the same path as the triage: secrets masked, the TEE attestation checked with a fresh nonce, and the reply's signature verified. Nothing is kept on the server between messages.</p>
+        <div id="chat-log"><p class="muted">Run a triage first, then ask things like “why not the database?” or “what should I check next?”.</p></div>
+        <div class="chatrow">
+          <input id="chat-input" placeholder="Ask about this incident…" spellcheck="false" disabled>
+          <button id="btn-chat" class="btn primary" disabled>Ask</button>
+        </div>
+      </section>
+
       <section class="card" id="sec-privacy">
-        <h2>3 · Privacy</h2>
+        <h2>3 · Verification &amp; privacy</h2>
+        <p class="explain">Proof for this request: what was masked and where, the TEE attestation checked with a fresh nonce before any data was sent, and the signature check on every model reply.</p>
         <div id="privacy"><p class="muted">Privacy details appear with the first triage call.</p></div>
       </section>
     </div>
