@@ -28,3 +28,22 @@ services:
     ports:
       - "4318:4318"     # OTLP/HTTP receiver — what the seeder targets
       - "13133:13133"   # health check
+
+  # The SRE Agent web API + UI. Logs (timings and pass/fail only) show in Docker Desktop.
+  # The API key comes from .env at runtime; it is never baked into the image.
+  app:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - JAEGER_URL=http://jaeger:16686
+      - PROM_URL=http://prometheus:9090
+      - OTEL_COLLECTOR_URL=http://otel-collector:4318
+      - PROM_OTLP_URL=http://prometheus:9090/api/v1/otlp/v1/metrics
+    ports:
+      - "3000:3000"
+    depends_on:
+      - jaeger
+      - prometheus
+      - otel-collector

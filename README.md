@@ -35,15 +35,12 @@ All telemetry in the demos is **synthetic** — planted exceptions, fictional se
 
 ```bash
 cd section-1-diagnosis
-docker compose up -d          # Jaeger + Prometheus + OTel Collector
-npm install
 cp .env.example .env          # add your NEAR AI Cloud API key ($10 hackathon credits:
                               #  nearbuilders.org/dashboard)
-npm test                      # redaction + action-list tests
-npm run seed -- auth-secrets-leak   # synthetic incident with planted FAKE secrets
-npm start                     # http://localhost:3000
+docker compose up -d --build  # SRE Agent app + Jaeger + Prometheus + OTel Collector
+                              # → http://localhost:3000
 ```
 
-**Fetch telemetry** (secrets show as `[REDACTED:<kind>]`), then **Triage privately** and read the privacy panel.
+Click **Simulate an incident → auth-secrets-leak**, then **Fetch telemetry** (secrets show as `[REDACTED:<kind>]`), **Triage privately**, and ask the agent a follow-up in the chat.
 
 Part of the global [NEAR Hackathon](https://nearhackathon.com), Nov 1–14, 2026.

@@ -23,15 +23,21 @@ The app itself is **zero-retention**: no database, no files, no logs of your tel
 
 ## Run it: do X, see Y
 
-Prerequisites: Docker, Node 20+, a NEAR AI Cloud API key ([nearbuilders.org/dashboard](https://nearbuilders.org/dashboard)).
+Prerequisites: Docker and a NEAR AI Cloud API key ([nearbuilders.org/dashboard](https://nearbuilders.org/dashboard)). Node 20+ only for tests or local development.
 
 ```bash
 cd section-1-diagnosis
-docker compose up -d            # Jaeger (16686) + Prometheus (9090) + OTel Collector (4318)
-npm install
 cp .env.example .env            # put NEARAI_API_KEY=sk-... in it; .env is gitignored
-npm test                        # redaction + action-list tests (no network needed)
-npm start                       # http://localhost:3000
+docker compose up -d --build    # SRE Agent app (3000) + Jaeger (16686) + Prometheus (9090) + OTel Collector (4318)
+open http://localhost:3000      # or just browse to it
+docker compose logs -f app      # app logs (also in Docker Desktop): timings and pass/fail only
+```
+
+The API key reaches the `app` container from `.env` at runtime and is never copied into the image (`.dockerignore`). Tests and local development without the app container:
+
+```bash
+npm install && npm test         # redaction + action-list tests (no network needed)
+docker compose stop app && npm start   # run the app on the host instead
 ```
 
 1. **Click `auth-secrets-leak`** under *Simulate an incident*, then **Fetch telemetry**.
