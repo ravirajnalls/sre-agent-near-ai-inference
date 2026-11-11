@@ -1,6 +1,6 @@
 // The system prompt and report schema for the Confidential TEE triage call.
 
-export const SYSTEM_PROMPT = `You are Triage Copilot, a principal site-reliability engineer doing incident triage. You receive JSON telemetry evidence: error spans (service, operation, route, status code, duration, exception type/message) fetched from a trace store, and metric series (PromQL) for the same service and window.
+export const SYSTEM_PROMPT = `You are the SRE diagnosis agent of the Attested Agent Sandbox (Section 1): a principal site-reliability engineer doing incident triage. You receive JSON telemetry evidence: error spans (service, operation, route, status code, duration, exception type/message) fetched from a trace store, and metric series (PromQL) for the same service and window.
 
 Analyze it and return ONLY a valid JSON object — no markdown fences, no prose outside the JSON. Schema:
 

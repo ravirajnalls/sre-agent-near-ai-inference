@@ -1,70 +1,48 @@
-# Triage Copilot
+# Attested Agent Sandbox
 
-> For on-call engineers, Triage Copilot finds root cause in production incident logs inside a TEE, because logs can't go elsewhere.
+> An open-source sandbox that runs any AI agent inside a TEE, with on-chain policy over what it can do. First agent: an SRE that debugs production without exposing your logs or secrets.
 
-Built at the **NEAR Private AI Hackathon NYC** (Build City, Nov 11, 2026) for Track 3 — Privacy & Private AI.
+Built at the NEAR Private AI Hackathon NYC (Build City, Nov 11, 2026) for the global NEAR Hackathon — Track 3, Privacy & Private AI.
 
-## The problem
+## The two sections
 
-The highest-signal incident data — error spans, exception messages, failing routes, error-rate spikes — is exactly what you can't paste into a normal chatbot: it contains customer tokens, internal topology, PII, secrets. So triage stays manual and slow.
+The project is split into two sections. The part that thinks never holds access; the part that holds access never thinks.
 
-## What Triage Copilot does
-
-1. Your telemetry already lives in **Jaeger** (traces) and **Prometheus** (metrics).
-2. You pick a **service + time window**; the app queries the **latest error data** — nothing is copy-pasted, nothing is exported.
-3. The evidence is analyzed by a **Confidential TEE model on NEAR AI Cloud** (`z-ai/glm-5.3-flash`): prompt and output are hidden from everyone — NEAR included.
-4. You get a structured triage report: root cause with cited evidence, blast radius across the service topology, ranked next actions with real commands, severity.
-5. The **privacy panel** shows the model tier, the attestation/metadata receipt, and exactly what left your machine.
-
-The app itself is **zero-retention**: no database, no files, no logs of your telemetry — the evidence exists only for the duration of one request.
-
-## Privacy model
-
-| Tier | Runs where | Private? |
+| Section | What it does | Status |
 |---|---|---|
-| **Confidential TEE** (used here) | NEAR's own GPUs | **Yes.** Prompt and output hidden from everyone, NEAR included |
-| Attested 3P | a third-party TEE | encrypted path; provider publishes its own proof |
-| Incognito | provider's servers | gateway-only TEE — not private end-to-end |
+| **[Section 1 — Sealed Diagnosis](section-1-diagnosis/)** | Queries the latest error telemetry for a service, and diagnoses the incident with a **Confidential TEE model on NEAR AI Cloud** — prompt and output hidden from everyone, NEAR included. Attended report + verified privacy panel. | **Built Nov 11** — see its [README](section-1-diagnosis/README.md) and [design](section-1-diagnosis/design/DESIGN.md) |
+| **[Section 2 — Gated Remediation](section-2-gating/)** | No fix runs without the contract: a redacting OpenTelemetry Collector in-cluster, a boxed agent with no network or credentials, and a **NEAR contract** that approves, parks or rejects every proposed fix. An executor applies only what the contract approved. | Planned — design complete, [build plan to Nov 14](section-2-gating/DESIGN.md) |
 
-Stated plainly in the UI: **only the model call is private.** Your laptop, this server and the telemetry it fetches sit outside the TEE. The API key exists only in the server's environment, never in the repo or the browser.
+## Why NEAR is load-bearing
 
-## Run it
+Section 2 makes the contract the only path from a diagnosis to a change in the cluster: remove NEAR and no fix can run. Section 1 already runs its model inference on NEAR AI Cloud's Confidential TEE tier, where the prompt and output are hidden from everyone — NEAR included — with the receipt surfaced in the UI.
 
-Prerequisites: Docker, Node 20+, a NEAR AI Cloud API key ([nearbuilders.org/dashboard](https://nearbuilders.org/dashboard) — $10 in credits for hackathon builders).
+## Repository layout
+
+```
+section-1-diagnosis/   sealed diagnosis app (Node + Express, OTLP telemetry stack)
+  design/              full design package: API contract, data models, privacy model,
+                       UI design, verification & execution plan
+  server.js, public/  the app and its ops-console UI
+  seed/                synthetic incident generator (OTLP → collector → Jaeger/Prometheus)
+section-2-gating/      gated remediation: design + build plan (collector redaction,
+                       sandbox runtime, NEAR contract, executor, verified panel)
+```
+
+All telemetry in the demos is **synthetic** — planted exceptions, fictional services, invented numbers. See each section's README for what is built and what is planned; claims are kept matched to code.
+
+## Quick start (Section 1)
 
 ```bash
-cd triage-copilot
-docker compose up -d          # Jaeger (16686, 4318) + Prometheus (9090)
+cd section-1-diagnosis
+docker compose up -d          # Jaeger + Prometheus + OTel Collector
 npm install
-cp .env.example .env           # put NEARAI_API_KEY=sk-... in it; .env is gitignored
-npm run seed -- payment-db-down   # emit a synthetic incident
+cp .env.example .env          # add your NEAR AI Cloud API key ($10 hackathon credits:
+                              #  nearbuilders.org/dashboard)
+npm run seed -- payment-db-down
 npm start                     # http://localhost:3000
 ```
 
-Open the UI, keep service `checkout` + last 30 minutes, hit **Triage privately**. Three synthetic incidents ship in `seed/scenarios.js`: `payment-db-down` (SEV1, 500s), `latency-regression` (SEV2, cache-miss storm), `inventory-crashloop` (SEV1, OOMKilled). All telemetry is **synthetic** — planted exceptions, fake services, invented numbers.
+Pick a service and window, **Fetch telemetry**, then **Triage privately**.
 
-## Demo script
-
-```bash
-curl -X POST localhost:3000/api/seed -H 'content-type: application/json' -d '{"scenario":"payment-db-down"}'
-curl -X POST localhost:3000/api/triage -H 'content-type: application/json' \
-     -d '{"service":"checkout","sinceMinutes":30}'
-```
-
-In the UI: seed → query → telemetry view (Jaeger query + error spans + 5xx jump) → **Triage privately** → report + privacy panel.
-
-## API
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/api/health` | key configured? Jaeger/Prometheus reachable? |
-| GET | `/api/scenarios` | list seedable incidents |
-| POST | `/api/seed` | `{scenario}` — push synthetic OTLP traces + metrics |
-| POST | `/api/telemetry` | `{service, sinceMinutes, maxTraces}` — fetch latest error data |
-| POST | `/api/triage` | `{service, sinceMinutes, maxTraces}` or `{bundle}` — fetch → TEE triage → report |
-
-## How it's built
-
-Node 20+, Express, vanilla HTML/JS (no build step). `jaeger-client.js` and `prom-client.js` talk to the real query APIs of Jaeger and Prometheus. `near-client.js` calls `cloud-api.near.ai/v1/chat/completions` with the Confidential TEE model (`enable_thinking: false` for demo latency) and captures any attestation metadata the response carries. `prompt.js` holds the senior-SRE system prompt and the strict JSON report schema. Seeding is OTLP/HTTP JSON — the same wire format your real services would emit. Point `JAEGER_URL` / `PROM_URL` at your real stack and it works unchanged.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
+Part of the global [NEAR Hackathon](https://nearhackathon.com), Nov 1–14, 2026.

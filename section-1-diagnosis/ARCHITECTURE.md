@@ -1,4 +1,4 @@
-# Triage Copilot — Architecture
+# Attested Agent Sandbox — Section 1: Sealed Diagnosis
 
 The design lives in [design/](design/DESIGN.md) and is the single source of truth:
 

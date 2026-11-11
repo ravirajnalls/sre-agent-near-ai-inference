@@ -6,7 +6,7 @@ true, checkable, and honest about limits.
 ## 1 · Trust boundaries
 
 ```
-┌─ browser (user) ─┐   HTTPS    ┌─ Triage Copilot server ─┐   HTTPS+Bearer   ┌─ NEAR AI Cloud ─┐
+┌─ browser (user) ─┐   HTTPS    ┌─ Attested Agent Sandbox server ─┐  HTTPS+Bearer  ┌─ NEAR AI Cloud ─┐
 │  renders report  │ ─────────► │  holds key (env only)   │ ───────────────► │  Confidential    │
 │  no key, no PII  │            │  builds evidence         │                  │  TEE: z-ai/…     │
 │  handling         │ ◄───────── │  zero retention         │ ◄─────────────── │  prompt+output   │

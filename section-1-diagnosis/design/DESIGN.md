@@ -1,6 +1,12 @@
-# Triage Copilot — Design (master document)
+# Section 1 — Sealed Diagnosis: Design (master document)
 
-> For on-call engineers, Triage Copilot finds root cause in production incident logs inside a TEE, because logs can't go elsewhere.
+> For on-call engineers, the Attested Agent Sandbox finds root cause in production incident logs inside a TEE, because logs can't go elsewhere.
+
+**This is Section 1 of a two-section project.** Section 1 (this document) delivers **sealed diagnosis**:
+query latest error telemetry → assemble evidence → Confidential TEE model call with the receipt
+surfaced in the UI. Section 2 — **gated remediation** (redacting collector, boxed agent, NEAR
+contract gate, executor) — is designed in [`../section-2-gating/DESIGN.md`](../../section-2-gating/DESIGN.md)
+and builds on top of this section through Nov 14.
 
 **Status: DRAFT — awaiting review. No code is written or changed until this design is approved.**
 
@@ -42,7 +48,7 @@ Telemetry already lives in your observability stack. The user picks **service + 
          │ GET /api/traces              │ GET /api/v1/query_range
          │ ?service&start&end&limit     │ ?query=<PromQL>
          ▼                              ▼
-┌────────────────── Triage Copilot · Node + Express, one process ───────────────────────┐
+┌────────────────── Attested Agent Sandbox S1 · Node + Express, one process ──────────────┐
 │  GET  /api/health · GET /api/scenarios · POST /api/seed                                │
 │  POST /api/telemetry  → latest error spans + metric series (UI preview)               │
 │  POST /api/triage     → evidence → NEAR AI Cloud (TEE) → report (+ privacy metadata)   │

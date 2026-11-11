@@ -1,0 +1,4 @@
+global:
+  scrape_interval: 15s
+
+# No scrape targets: the seed pushes OTLP metrics to the collector, which remote-writes them.

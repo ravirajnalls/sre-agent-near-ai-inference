@@ -7,7 +7,7 @@ three sections that mirror the story: **what happened → what it means → why 
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ ▲ TRIAGE COPILOT   private incident triage on confidential compute             │
+│ ▲ ATTESTED AGENT SANDBOX   section 1 · sealed incident diagnosis  │
 │                    ● key  ● jaeger  ● prometheus   [Confidential TEE · model]  │
 ├──────────────┬─────────────────────────────────────────────────────────────────┤
 │ INCIDENT     │  1 · TELEMETRY          checkout · last 30 min · 5 error traces │

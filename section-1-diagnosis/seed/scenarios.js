@@ -97,7 +97,7 @@ async function pushTrace(spans) {
   }
   const resourceSpans = [...byService.entries()].map(([service, svcSpans]) => ({
     resource: { attributes: [attr("service.name", service)] },
-    scopeSpans: [{ scope: { name: "triage-copilot-seed" }, spans: svcSpans }],
+    scopeSpans: [{ scope: { name: "attested-agent-sandbox-seed" }, spans: svcSpans }],
   }));
   const res = await fetch(`${JAEGER_OTLP()}/v1/traces`, {
     method: "POST",
@@ -131,8 +131,8 @@ async function pushMetrics(metrics, startMs, stepMs) {
     const body = {
       resourceMetrics: [
         {
-          resource: { attributes: [attr("service.name", "triage-copilot-seed")] },
-          scopeMetrics: [{ scope: { name: "triage-copilot-seed" }, metrics: payload }],
+          resource: { attributes: [attr("service.name", "seed")] },
+          scopeMetrics: [{ scope: { name: "attested-agent-sandbox-seed" }, metrics: payload }],
         },
       ],
     };

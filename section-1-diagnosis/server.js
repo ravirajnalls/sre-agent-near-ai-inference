@@ -1,4 +1,5 @@
-// Triage Copilot — private incident triage on NEAR AI Cloud Confidential TEE models.
+// Attested Agent Sandbox — Section 1: Sealed Diagnosis.
+// Private incident triage on NEAR AI Cloud Confidential TEE models.
 // Zero retention: telemetry evidence exists only for the duration of a request;
 // logs contain sizes and timings, never content; the API key never leaves this process.
 
@@ -151,7 +152,7 @@ app.post("/api/triage", async (req, res) => {
 
 const port = Number(process.env.PORT) || 3000;
 app.listen(port, () => {
-  console.log(`Triage Copilot → http://localhost:${port}`);
+  console.log(`Attested Agent Sandbox (section 1) → http://localhost:${port}`);
   if (!process.env.NEARAI_API_KEY) {
     console.log("NEARAI_API_KEY is not set — triage will fail until you add it to .env");
   }

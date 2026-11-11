@@ -1,4 +1,0 @@
-global:
-  scrape_interval: 15s
-
-# No scrape targets: Triage Copilot pushes OTLP metrics to /api/v1/otlp/v1/metrics.
