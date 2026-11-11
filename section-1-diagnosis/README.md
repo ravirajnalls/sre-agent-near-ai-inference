@@ -1,6 +1,6 @@
 # Attested Agent Sandbox — Section 1: Sealed Diagnosis
 
-> For on-call engineers, the Attested Agent Sandbox finds root cause in production incident logs inside a TEE, because logs can't go elsewhere.
+> For on-call engineers, the Attested Agent Sandbox finds root cause in production incident telemetry inside a TEE, without your secrets ever reaching the model.
 
 Built at the **NEAR Private AI Hackathon NYC** (Build City, Nov 11, 2026) for Track 3 — Privacy & Private AI.
 
@@ -8,63 +8,94 @@ Built at the **NEAR Private AI Hackathon NYC** (Build City, Nov 11, 2026) for Tr
 
 The highest-signal incident data — error spans, exception messages, failing routes, error-rate spikes — is exactly what you can't paste into a normal chatbot: it contains customer tokens, internal topology, PII, secrets. So triage stays manual and slow.
 
-## What Section 1 does
+## What Section 1 does, and which design rule each step serves
 
-1. Your telemetry already lives in **Jaeger** (traces) and **Prometheus** (metrics).
-2. You pick a **service + time window**; the app queries the **latest error data** — nothing is copy-pasted, nothing is exported.
-3. The evidence is analyzed by a **Confidential TEE model on NEAR AI Cloud** (`z-ai/glm-5.3-flash`): prompt and output are hidden from everyone — NEAR included.
-4. You get a structured triage report: root cause with cited evidence, blast radius across the service topology, ranked next actions with real commands, severity.
-5. The **privacy panel** shows the model tier, the attestation/metadata receipt, and exactly what left your machine.
-
-The app itself is **zero-retention**: no database, no files, no logs of your telemetry — the evidence exists only for the duration of one request.
-
-## Privacy model
-
-| Tier | Runs where | Private? |
+| Step | What happens | Design rule |
 |---|---|---|
-| **Confidential TEE** (used here) | NEAR's own GPUs | **Yes.** Prompt and output hidden from everyone, NEAR included |
-| Attested 3P | a third-party TEE | encrypted path; provider publishes its own proof |
-| Incognito | provider's servers | gateway-only TEE — not private end-to-end |
+| 1 | Telemetry flows through an **OpenTelemetry Collector that masks secrets** (connection strings, JWTs, bearer tokens, API keys, `password=`-style credentials, emails) and tags each span with the *kinds* it masked — never the values. Jaeger only ever stores masked text. | Redact first |
+| 2 | You pick a service + window; the app queries Jaeger (traces) and Prometheus (metrics) and builds a compact evidence object. The server **re-applies the same masking rules** (this also covers paste mode) and records a manifest of kinds and counts. | Redact first |
+| 3 | Before any evidence is sent, the server fetches **NEAR AI's attestation report with a fresh 32-byte nonce** and checks it. In `strict` mode a failed check stops here. | Attested model |
+| 4 | The evidence goes to a **Confidential TEE model on NEAR AI Cloud** (`z-ai/glm-5.3-flash`). The **signature on every reply** is checked against our exact request and response and the attested key. | Attested model |
+| 5 | The model returns a diagnosis and **one proposed fix from a fixed list** of six action types. Code validates it; anything off-list or malformed is rejected. Nothing is applied. | No fix runs without the contract (first gate) |
+| 6 | The **privacy panel** shows the redaction manifest, each attestation and signature check as pass/fail/skip, and the proposed action's status. | Verified panel |
 
-Stated plainly in the UI: **only the model call is private.** Your laptop, this server and the telemetry it fetches sit outside the TEE. The API key exists only in the server's environment, never in the repo or the browser.
+The app itself is **zero-retention**: no database, no files, no logs of your telemetry. Logs carry sizes, timings and pass/fail flags only.
 
-## Run it
+## Run it: do X, see Y
 
-Prerequisites: Docker, Node 20+, a NEAR AI Cloud API key ([nearbuilders.org/dashboard](https://nearbuilders.org/dashboard) — $10 in credits for hackathon builders).
+Prerequisites: Docker, Node 20+, a NEAR AI Cloud API key ([nearbuilders.org/dashboard](https://nearbuilders.org/dashboard)).
 
 ```bash
 cd section-1-diagnosis
-docker compose up -d          # Jaeger (16686) + Prometheus (9090) + OTel Collector (4318)
+docker compose up -d            # Jaeger (16686) + Prometheus (9090) + OTel Collector (4318)
 npm install
-cp .env.example .env           # put NEARAI_API_KEY=sk-... in it; .env is gitignored
-npm run seed -- payment-db-down   # emit a synthetic incident
-npm start                     # http://localhost:3000
+cp .env.example .env            # put NEARAI_API_KEY=sk-... in it; .env is gitignored
+npm test                        # redaction + action-list tests (no network needed)
+npm start                       # http://localhost:3000
 ```
 
-Open the UI, keep service `checkout` + last 30 minutes, hit **Triage privately**. Three synthetic incidents ship in `seed/scenarios.js`: `payment-db-down` (SEV1, 500s), `latency-regression` (SEV2, cache-miss storm), `inventory-crashloop` (SEV1, OOMKilled). All telemetry is **synthetic** — planted exceptions, fake services, invented numbers.
+1. **Click `auth-secrets-leak`** under *Seed a synthetic incident*, then **Fetch telemetry**.
+   **See:** the error spans show `[REDACTED:connection_string]`, `[REDACTED:jwt]`, `[REDACTED:credential]`, `[REDACTED:email]` where the seed planted fake secrets. Jaeger (http://localhost:16686) shows the same masked text and `redaction.masked.<kind>` tags: nothing unmasked was ever stored.
+2. **Click Triage privately.**
+   **See:** the privacy panel's redaction manifest lists the kinds masked *in the collector* and `0` masked in the server.
+3. **Look at the attestation block.**
+   **See:** `report fetched` with a fresh nonce, `nonce echoed`, `TDX report_data binds signing key + nonce`, `NVIDIA GPU attestation (NRAS)` all ✓, then a ✓ list for each reply signature, and the attestation report's sha256.
+4. **Look at the proposed fix.**
+   **See:** one action such as `none` (a credential problem needs a human) or `set_resources prod/inventory-api {...}` for `inventory-crashloop`, marked *valid* or *rejected by the runtime*.
+5. **Paste a bundle** containing a fake secret (e.g. `AUTH_DB_PASSWORD=hunter2 jane@example.com`) and click *Triage pasted bundle*.
+   **See:** the manifest shows those kinds masked *in the server*, because paste mode has no collector in front of it.
+6. **Break attestation on purpose:** set `NEAR_BASE_URL` to a wrong host, restart, triage again.
+   **See:** the request stops with *"NEAR AI attestation did not verify — no evidence was sent to the model"* and the failing check is shown.
 
-## Demo script
+Four synthetic incidents ship in `seed/scenarios.js`: `payment-db-down` (SEV1), `latency-regression` (SEV2), `inventory-crashloop` (SEV1, OOMKilled), `auth-secrets-leak` (SEV1, planted fake secrets). All telemetry is **synthetic**.
 
-```bash
-curl -X POST localhost:3000/api/seed -H 'content-type: application/json' -d '{"scenario":"payment-db-down"}'
-curl -X POST localhost:3000/api/triage -H 'content-type: application/json' \
-     -d '{"service":"checkout","sinceMinutes":30}'
-```
+### Verification modes
 
-In the UI: seed → query → telemetry view (Jaeger query + error spans + 5xx jump) → **Triage privately** → report + privacy panel.
+`ATTESTATION_MODE` in `.env`:
+
+| Mode | Behaviour |
+|---|---|
+| `strict` (default) | Any failed attestation check stops the triage before evidence is sent; any failed reply-signature check discards the report. |
+| `warn` | Checks run and failures are shown, but the triage continues. The panel and scope line say *NOT verified*. |
+| `off` | Local mode: no checks. The panel says so. Use only when NEAR AI's attestation endpoint is unreachable. |
+
+## Trust model and its limits
+
+Every defence has a stated limit. These are the claims the code makes, no stronger.
+
+| Threat | Defence in this code | Limit |
+|---|---|---|
+| The model provider reads your telemetry | Inference runs on NEAR AI's Confidential TEE tier; attestation with a fresh nonce is checked **before** any data is sent, and every reply's signature is checked | A bug inside the enclave can still expose requests. That is why redaction comes first. |
+| The attestation is faked | Nonce echo; TDX `report_data` must bind the signing key and our nonce; NVIDIA NRAS must accept the GPU evidence; replies must be signed by an attested key | **The Intel TDX quote's own certificate chain (DCAP collateral) is not checked in-app.** Run the official [nearai-cloud-verifier](https://github.com/nearai/nearai-cloud-verifier) for that. The panel lists it as *skip*. The NRAS verdict is read from NVIDIA's token without verifying the token's signature. |
+| Secrets leave your machine | Collector masks them before storage and tags the kinds; the server re-masks every evidence string and paste-mode input | Pattern-based: an unusual secret format can slip through. |
+| A log line hijacks the model | Evidence is labelled as data in the prompt; the fix must be one of six action types with validated params | A wrong fix that is on the list can still be proposed. Nothing in Section 1 applies it. |
+| Someone swaps the agent's code | — | **Not addressed in Section 1.** The server runs on your laptop, not in an enclave, and there is no on-chain measurement yet. That is Section 2. |
+| A fix runs without approval | Section 1 applies nothing | The NEAR contract gate and executor are Section 2 (planned, not built). |
+
+Also stated plainly in the UI: **only the model call is private.** Your laptop, this server and the telemetry stack sit outside the TEE. The API key exists only in the server's environment, never in the repo or the browser.
 
 ## API
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/health` | key configured? Jaeger/Prometheus reachable? |
+| GET | `/api/health` | key configured? attestation mode? Jaeger/Prometheus/collector reachable? |
 | GET | `/api/scenarios` | list seedable incidents |
 | POST | `/api/seed` | `{scenario}` — push synthetic OTLP traces + metrics |
 | POST | `/api/telemetry` | `{service, sinceMinutes, maxTraces}` — fetch latest error data |
-| POST | `/api/triage` | `{service, sinceMinutes, maxTraces}` or `{bundle}` — fetch → TEE triage → report |
+| POST | `/api/triage` | `{service, sinceMinutes, maxTraces}` or `{bundle}` — mask → attest → TEE triage → verify signature → validate action → report |
 
 ## How it's built
 
-Node 20+, Express, vanilla HTML/JS (no build step). `jaeger-client.js` and `prom-client.js` talk to the real query APIs of Jaeger and Prometheus. `near-client.js` calls `cloud-api.near.ai/v1/chat/completions` with the Confidential TEE model (`enable_thinking: false` for demo latency) and captures any attestation metadata the response carries. `prompt.js` holds the senior-SRE system prompt and the strict JSON report schema. Seeding is OTLP/HTTP JSON — the same wire format your real services would emit. Point `JAEGER_URL` / `PROM_URL` at your real stack and it works unchanged.
+| File | Job |
+|---|---|
+| `otel-collector.config.yaml` | `transform/redact` (OTTL `replace_all_patterns` / `replace_pattern` on span and event attributes and status messages, plus `redaction.masked.<kind>` tags) and a `redaction` processor backstop |
+| `redact.js` | the same rules applied server-side; builds the redaction manifest |
+| `attestation.js` | nonce, report checks, NRAS, EIP-191 reply-signature recovery (`@noble/curves`, `@noble/hashes`) |
+| `near-client.js` | the only place the API key is read: chat completions, attestation report, reply signature, 60 s timeouts |
+| `prompt.js` | system prompt, report schema, fixed action list and `validateAction` |
+| `server.js`, `public/` | Express app and the ops-console UI |
+| `test/` | `npm test`: planted secrets never survive; off-list or malformed actions are rejected |
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
+Node 20+, Express, vanilla HTML/JS (no build step). Point `JAEGER_URL` / `PROM_URL` at your real stack and route your services through the collector config to use it on real telemetry.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) and [design/](design/DESIGN.md) for the design package, and [../section-2-gating/DESIGN.md](../section-2-gating/DESIGN.md) for what comes next.

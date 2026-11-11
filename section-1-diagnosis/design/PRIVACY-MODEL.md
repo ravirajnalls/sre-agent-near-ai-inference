@@ -1,5 +1,7 @@
 # Privacy model
 
+> **Updated Nov 11 (build):** the receipt is no longer a header scrape. `attestation.js` verifies the attestation report with a fresh nonce before any data is sent and checks every reply's signature; `redact.js` and the collector's `transform/redact` processor mask secrets first. The current claims and limits are in [../README.md](../README.md#trust-model-and-its-limits).
+
 Track 3 is Privacy & Private AI. This document is what the privacy panel claims — and it must be
 true, checkable, and honest about limits.
 

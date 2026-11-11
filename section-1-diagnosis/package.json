@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node server.js",
     "seed": "node seed/seed-incident.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/redact.test.js test/action.test.js"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",

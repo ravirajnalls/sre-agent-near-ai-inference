@@ -10,12 +10,12 @@ The project is split into two sections. The part that thinks never holds access;
 
 | Section | What it does | Status |
 |---|---|---|
-| **[Section 1 — Sealed Diagnosis](section-1-diagnosis/)** | Queries the latest error telemetry for a service, and diagnoses the incident with a **Confidential TEE model on NEAR AI Cloud** — prompt and output hidden from everyone, NEAR included. Attended report + verified privacy panel. | **Built Nov 11** — see its [README](section-1-diagnosis/README.md) and [design](section-1-diagnosis/design/DESIGN.md) |
+| **[Section 1 — Sealed Diagnosis](section-1-diagnosis/)** | A redacting OpenTelemetry Collector masks secrets before storage; the app queries the latest error telemetry, verifies **NEAR AI attestation with a fresh nonce** before sending anything, diagnoses on a **Confidential TEE model on NEAR AI Cloud**, checks the **signature on every reply**, and returns one proposed fix from a **fixed action list** (validated, never applied). | **Built Nov 11** — see its [README](section-1-diagnosis/README.md) ("do X, see Y" steps and the trust model's limits) |
 | **[Section 2 — Gated Remediation](section-2-gating/)** | No fix runs without the contract: a redacting OpenTelemetry Collector in-cluster, a boxed agent with no network or credentials, and a **NEAR contract** that approves, parks or rejects every proposed fix. An executor applies only what the contract approved. | Planned — design complete, [build plan to Nov 14](section-2-gating/DESIGN.md) |
 
 ## Why NEAR is load-bearing
 
-Section 2 makes the contract the only path from a diagnosis to a change in the cluster: remove NEAR and no fix can run. Section 1 already runs its model inference on NEAR AI Cloud's Confidential TEE tier, where the prompt and output are hidden from everyone — NEAR included — with the receipt surfaced in the UI.
+Section 2 makes the contract the only path from a diagnosis to a change in the cluster: remove NEAR and no fix can run. Section 1 already runs its model inference on NEAR AI Cloud's Confidential TEE tier and refuses to send evidence unless the attestation for a fresh nonce checks out; each check is shown in the UI. Section 1 has no contract yet: it proposes a fix but never applies one.
 
 ## Repository layout
 
@@ -39,10 +39,11 @@ docker compose up -d          # Jaeger + Prometheus + OTel Collector
 npm install
 cp .env.example .env          # add your NEAR AI Cloud API key ($10 hackathon credits:
                               #  nearbuilders.org/dashboard)
-npm run seed -- payment-db-down
+npm test                      # redaction + action-list tests
+npm run seed -- auth-secrets-leak   # synthetic incident with planted FAKE secrets
 npm start                     # http://localhost:3000
 ```
 
-Pick a service and window, **Fetch telemetry**, then **Triage privately**.
+**Fetch telemetry** (secrets show as `[REDACTED:<kind>]`), then **Triage privately** and read the privacy panel.
 
 Part of the global [NEAR Hackathon](https://nearhackathon.com), Nov 1–14, 2026.
