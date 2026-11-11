@@ -1,6 +1,8 @@
 // NEAR AI Cloud client — the only place the API key is ever read.
 // The key lives in NEARAI_API_KEY (env / .env), never in the repo, browser or logs.
 
+import { traceCall } from "./calltrace.js";
+
 export const BASE = () => process.env.NEAR_BASE_URL || "https://cloud-api.near.ai/v1";
 export const MODEL = () => process.env.NEAR_MODEL || "Qwen/Qwen3.6-35B-A3B-FP8";
 
@@ -24,16 +26,32 @@ function extraBody() {
   }
 }
 
-/** fetch with a hard timeout and a readable error when it fires. */
-async function timedFetch(url, init, timeoutMs, what) {
+/**
+ * fetch with a hard timeout and a readable error when it fires. Every call is
+ * recorded in the request's call trace (method, path, status, timing, sizes).
+ */
+async function timedFetch(url, init, timeoutMs, what, meta = {}) {
+  const u = new URL(url);
+  const call = traceCall({
+    to: "near",
+    method: init.method || "GET",
+    path: meta.path || u.pathname,
+    label: meta.label || what,
+    sent: meta.sent,
+    reqBytes: init.body ? Buffer.byteLength(init.body) : 0,
+  });
   try {
     const res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
     const text = await res.text();
-    return { res, text };
+    call.end({ status: res.status, resBytes: Buffer.byteLength(text) });
+    return { res, text, call };
   } catch (e) {
     if (e?.name === "TimeoutError" || e?.name === "AbortError") {
+      call.end({ status: "timeout" });
       throw new Error(`${what} did not answer within ${Math.round(timeoutMs / 1000)}s`);
     }
+    call.end({ status: "error" });
+    call.got = String(e.message).slice(0, 80);
     throw e;
   }
 }
@@ -62,7 +80,7 @@ export async function triageComplete(messages, opts = {}) {
   // ADR-007: a hung model call must not hang the request (or the demo).
   // Reasoning on a full incident prompt can take a minute or more.
   const timeoutMs = opts.timeoutMs ?? (Number(process.env.NEAR_TIMEOUT_MS) || 150_000);
-  const { res, text } = await timedFetch(
+  const { res, text, call } = await timedFetch(
     `${BASE()}/chat/completions`,
     {
       method: "POST",
@@ -71,6 +89,10 @@ export async function triageComplete(messages, opts = {}) {
     },
     timeoutMs,
     "NEAR AI Cloud",
+    {
+      label: "Run the model inside the TEE",
+      sent: `model ${body.model} · ${messages.length} messages · ${messages.reduce((n, m) => n + String(m.content).length, 0)} chars of masked text`,
+    },
   );
   const elapsedMs = Date.now() - started;
   if (!res.ok) {
@@ -83,6 +105,7 @@ export async function triageComplete(messages, opts = {}) {
     throw new Error("NEAR AI Cloud returned a non-JSON response");
   }
   const content = json.choices?.[0]?.message?.content ?? "";
+  call.got = `chat_id ${json.id} · ${content.length} chars${json.usage ? ` · ${json.usage.prompt_tokens}→${json.usage.completion_tokens} tokens` : ""}`;
   return {
     content,
     model: json.model || MODEL(),
@@ -101,14 +124,22 @@ export async function triageComplete(messages, opts = {}) {
 export async function fetchAttestationReport(nonce, opts = {}) {
   const key = apiKey();
   const params = new URLSearchParams({ model: MODEL(), nonce, signing_algo: "ecdsa" });
-  const { res, text } = await timedFetch(
+  const { res, text, call } = await timedFetch(
     `${BASE()}/attestation/report?${params}`,
     { headers: { authorization: `Bearer ${key}`, accept: "application/json" } },
     opts.timeoutMs ?? 20_000,
     "NEAR AI attestation endpoint",
+    {
+      path: `/v1/attestation/report?model=${MODEL()}&nonce=${nonce.slice(0, 12)}…&signing_algo=ecdsa`,
+      label: "Get attestation report (fresh nonce)",
+      sent: `nonce ${nonce.slice(0, 16)}… (32 random bytes, no evidence)`,
+    },
   );
   if (!res.ok) throw new Error(`attestation report HTTP ${res.status}: ${text.slice(0, 160)}`);
-  return { json: JSON.parse(text), text };
+  const json = JSON.parse(text);
+  const nodes = Array.isArray(json.model_attestations) ? json.model_attestations.length : 0;
+  call.got = `${nodes} TEE node(s): signing key + TDX quote + GPU evidence each`;
+  return { json, text };
 }
 
 /**
@@ -118,14 +149,21 @@ export async function fetchAttestationReport(nonce, opts = {}) {
 export async function fetchReplySignature(chatId, opts = {}) {
   const key = apiKey();
   const params = new URLSearchParams({ model: MODEL(), signing_algo: "ecdsa" });
-  const { res, text } = await timedFetch(
+  const { res, text, call } = await timedFetch(
     `${BASE()}/signature/${encodeURIComponent(chatId)}?${params}`,
     { headers: { authorization: `Bearer ${key}`, accept: "application/json" } },
     opts.timeoutMs ?? 15_000,
     "NEAR AI signature endpoint",
+    {
+      path: `/v1/signature/${chatId}?model=${MODEL()}&signing_algo=ecdsa`,
+      label: "Get the reply's signature",
+      sent: `chat_id ${chatId}`,
+    },
   );
   if (!res.ok) throw new Error(`signature HTTP ${res.status}: ${text.slice(0, 160)}`);
-  return JSON.parse(text);
+  const json = JSON.parse(text);
+  call.got = `signed by ${json.signing_address || "?"}`;
+  return json;
 }
 
 export const tierInfo = {

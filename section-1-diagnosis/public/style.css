@@ -222,3 +222,48 @@ footer { padding: 14px 22px; border-top: 1px solid var(--border); color: var(--m
 .rawbox { margin-top: 14px; }
 .rawbox summary { cursor: pointer; font-family: var(--mono); font-size: 12px; color: var(--blue); }
 .rawbox pre.raw { max-height: 320px; overflow: auto; }
+
+/* --- calls to NEAR AI (wire view) --- */
+.wtools { display: flex; gap: 10px; align-items: center; justify-content: flex-end; min-height: 28px; margin-bottom: 6px; }
+.wire { position: relative; padding-bottom: 8px; }
+.wire::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background:
+    linear-gradient(var(--border), var(--border)) 16.667% 0 / 1px 100% no-repeat,
+    linear-gradient(var(--border), var(--border)) 50% 0 / 1px 100% no-repeat,
+    linear-gradient(var(--border), var(--border)) 83.333% 0 / 1px 100% no-repeat; }
+.whead { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; margin-bottom: 10px; position: relative; }
+.whead span { justify-self: center; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-family: var(--mono); font-size: 11px; color: #fff; max-width: 95%; }
+.whead span:nth-child(2) { border-color: var(--accent); }
+.whead small { display: block; color: var(--muted); font-size: 10px; }
+.wrow { position: relative; margin: 6px 0; }
+.wwait { text-align: center; position: relative; }
+.wmsg { position: relative; animation: wfade .35s ease-out; }
+.wlabel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; padding: 0 6px; }
+.wlabel b { color: #fff; font-weight: 600; }
+.cnum { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--blue); color: var(--bg); font: 700 10px var(--mono); }
+.wmsg.nvidia .cnum { background: var(--amber); }
+.ctag { font: 10px var(--mono); border-radius: 4px; padding: 1px 6px; border: 1px solid var(--border); color: var(--muted); }
+.ctag.ev { border-color: var(--accent); color: var(--accent); }
+.wpath { font-size: 10.5px; color: var(--blue); padding: 2px 6px; overflow-wrap: anywhere; }
+.wnote { font-size: 11px; color: var(--text); padding: 2px 6px; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.warrow { position: relative; height: 10px; margin: 2px 0; }
+.warrow::before { content: ""; position: absolute; left: 0; right: 6px; top: 4px; border-top: 2px solid var(--blue); }
+.warrow.req::after { content: ""; position: absolute; right: 0; top: 0; border: 5px solid transparent; border-left: 7px solid var(--blue); border-right: 0; }
+.warrow.res::before { left: 6px; right: 0; border-top: 2px dashed var(--accent); }
+.warrow.res::after { content: ""; position: absolute; left: 0; top: 0; border: 5px solid transparent; border-right: 7px solid var(--accent); border-left: 0; }
+.wmsg.nvidia .warrow.req::before { border-color: var(--amber); }
+.wmsg.nvidia .warrow.req::after { border-left-color: var(--amber); }
+.warrow i { display: none; }
+.warrow.moving i { display: block; position: absolute; top: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: wmove 1s ease-in-out infinite alternate; }
+.wlocal { width: 33.333%; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; font-size: 11px; position: relative; animation: wfade .35s ease-out; }
+.wlocal b { background: var(--panel2); border: 1px solid var(--accent); color: var(--accent); border-radius: 6px; padding: 3px 8px; font-weight: 600; }
+.wlocal.bad b { border-color: var(--red); color: var(--red); }
+.wlocal span { color: var(--muted); font-size: 10.5px; overflow-wrap: anywhere; padding: 0 4px; }
+.cstat { font: 600 10.5px var(--mono); border-radius: 4px; padding: 1px 6px; background: var(--panel2); }
+.cstat.ok { color: var(--accent); }
+.cstat.bad { color: var(--red); }
+.cstat.pend { color: var(--amber); animation: wpulse 1s ease-in-out infinite; }
+@keyframes wmove { from { left: 0; } to { left: calc(100% - 16px); } }
+@keyframes wfade { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes wpulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .wmsg, .wlocal, .cstat.pend, .warrow.moving i { animation: none; } }

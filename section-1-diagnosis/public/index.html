@@ -80,6 +80,12 @@
         <div id="report"><p class="muted">No report yet — pick a service and hit “Triage privately”.</p></div>
       </section>
 
+      <section class="card" id="sec-calls">
+        <h2>Calls to NEAR AI <span class="muted" id="calls-meta"></span></h2>
+        <p class="explain">Every call the server makes for one triage, in order. First it gets an attestation report with a fresh nonce and has NVIDIA check the GPU evidence: no incident data is sent yet. Only when those checks pass does it send the masked evidence to the model, then it fetches the reply's signature. Shown live while it runs; press Replay to step through it again.</p>
+        <div id="calls"><p class="muted">Run a triage to see the calls.</p></div>
+      </section>
+
       <section class="card" id="sec-chat">
         <h2>Ask the SRE agent</h2>
         <p class="explain">Follow-up questions about this incident. Every message goes through the same path as the triage: secrets masked, the TEE attestation checked with a fresh nonce, and the reply's signature verified. Nothing is kept on the server between messages.</p>

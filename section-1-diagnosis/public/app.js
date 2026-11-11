@@ -106,8 +106,10 @@ async function run(mode) {
   renderReportBusy(mode === "bundle");
   const btn = mode === "bundle" ? $("btn-bundle") : $("btn-triage");
   btn.disabled = true;
+  const watch = watchCalls("triage");
   try {
-    const r = await post("/api/triage", body);
+    const r = await post("/api/triage", body, watch.id);
+    watch.stop(r.calls);
     if (r.error) {
       // A failed attestation/signature check still shows WHICH check failed.
       if (r.verification) renderPrivacy({ privacy: { verification: r.verification, scope: "Stopped: verification failed, so the report was withheld." } });
@@ -123,14 +125,15 @@ async function run(mode) {
   } catch (e) {
     $("report").innerHTML = `<p class="err">${esc(e.message)}</p>`;
   } finally {
+    watch.stop();
     btn.disabled = false;
   }
 }
 
-async function post(url, body) {
+async function post(url, body, traceId) {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(traceId ? { "x-trace-id": traceId } : {}) },
     body: JSON.stringify(body),
   });
   return res.json();
@@ -400,8 +403,10 @@ async function ask() {
   $("btn-chat").disabled = true;
   const mine = addMsg("user", esc(q));
   const pending = addMsg("agent", '<span class="muted">masking → attesting → asking the TEE model …</span>');
+  const watch = watchCalls(`chat turn ${chatHistory.length / 2 + 1}`);
   try {
-    const r = await post("/api/chat", { context: chatContext, history: chatHistory, question: q });
+    const r = await post("/api/chat", { context: chatContext, history: chatHistory, question: q }, watch.id);
+    watch.stop(r.calls);
     if (r.error) {
       pending.innerHTML = `<p class="err">${esc(r.error)}</p>${verifyBadge(r.verification)}`;
       return;
@@ -416,9 +421,119 @@ async function ask() {
   } catch (e) {
     pending.innerHTML = `<p class="err">${esc(e.message)}</p>`;
   } finally {
+    watch.stop();
     $("btn-chat").disabled = false;
     $("chat-input").focus();
   }
+}
+
+// --- calls to NEAR AI: live view + replay ----------------------------------------
+// The server records every outbound call (method, path, status, timing, one-line
+// summary; never content). While a request runs we poll /api/trace/:id; when it
+// returns, the response carries the final list and the Replay button steps through it.
+
+const LANES = { server: 0, near: 1, nvidia: 2 };
+let lastCalls = null;
+let replayTimer = null;
+
+function watchCalls(title) {
+  const id = (crypto.randomUUID?.() || String(Math.random()).slice(2) + Date.now()).replace(/[^A-Za-z0-9]/g, "").slice(0, 32);
+  clearTimeout(replayTimer);
+  renderCalls([], { title, live: true });
+  let done = false;
+  let seen = "[]";
+  const tick = async () => {
+    if (done) return;
+    try {
+      const t = await (await fetch(`/api/trace/${id}`)).json();
+      const key = JSON.stringify(t.entries || []);
+      // Re-render only on change, so the in-flight animation keeps running.
+      if (!done && key !== seen) renderCalls(t.entries || [], { title, live: true }), (seen = key);
+    } catch { /* next tick */ }
+    if (!done) setTimeout(tick, 250);
+  };
+  setTimeout(tick, 150);
+  return {
+    id,
+    stop(calls) {
+      if (done) return;
+      done = true;
+      if (calls?.entries) {
+        lastCalls = { title, entries: calls.entries };
+        renderCalls(calls.entries, { title });
+      }
+    },
+  };
+}
+
+function callStatus(e) {
+  if (e.status === "pending") return '<span class="cstat pend">waiting…</span>';
+  const ok = typeof e.status === "number" && e.status < 400;
+  return `<span class="cstat ${ok ? "ok" : "bad"}">${esc(e.status)}</span><span class="muted mono">${e.ms != null ? `${e.ms} ms` : ""}</span>`;
+}
+
+function renderEntry(e, n) {
+  if (e.kind === "local") {
+    return `<div class="wrow"><div class="wlocal ${e.ok ? "ok" : "bad"}"><b>${e.ok ? "✓" : "✗"} ${esc(e.label)}</b>${e.detail ? `<span>${esc(e.detail)}</span>` : ""}</div></div>`;
+  }
+  const lane = LANES[e.to] ?? 1;
+  const width = lane * 33.333;
+  const evidence = e.to === "near" && e.method === "POST";
+  const pending = e.status === "pending";
+  return `<div class="wrow">
+    <div class="wmsg ${e.to}" style="margin-left:16.667%;width:${width}%">
+      <div class="wlabel"><span class="cnum">${n}</span><b>${esc(e.label)}</b>
+        <span class="ctag ${evidence ? "ev" : "noev"}">${evidence ? "masked evidence sent" : "no incident data"}</span></div>
+      <div class="wpath mono">${esc(e.method)} ${esc(e.path)}</div>
+      <div class="warrow req${pending ? " moving" : ""}"><i></i></div>
+      ${e.sent ? `<div class="wnote">sent: ${esc(e.sent)}</div>` : ""}
+      ${pending ? "" : `<div class="warrow res"></div>
+      <div class="wnote">${callStatus(e)} ${e.got ? esc(e.got) : ""}</div>`}
+      ${pending ? `<div class="wnote">${callStatus(e)}</div>` : ""}
+    </div></div>`;
+}
+
+function renderCalls(entries, { title, live = false, replay = false } = {}) {
+  let n = 0;
+  const rows = entries.map((e) => renderEntry(e, e.kind === "call" ? ++n : n)).join("");
+  const calls = entries.filter((e) => e.kind === "call");
+  const toNear = calls.filter((e) => e.to === "near").length;
+  const toNv = calls.filter((e) => e.to === "nvidia").length;
+  const last = entries.at(-1);
+  const total = last ? (last.atMs || 0) + (last.ms || 0) : 0;
+  $("calls-meta").textContent = calls.length
+    ? `· ${title} · ${toNear} to NEAR AI${toNv ? ` · ${toNv} to NVIDIA` : ""} · ${(total / 1000).toFixed(1)}s`
+    : title ? `· ${title}` : "";
+  const state = live ? '<span class="cstat pend">live</span>' : replay ? '<span class="cstat pend">replaying</span>' : "";
+  $("calls").innerHTML = `
+    <div class="wtools">${state}${!live && lastCalls?.entries?.length ? '<button class="btn" id="btn-replay">▶ Replay step by step</button>' : ""}</div>
+    <div class="wire">
+      <div class="whead"><span>This server<small>your machine</small></span><span>NEAR AI Cloud<small>TEE: Intel TDX + NVIDIA GPU</small></span><span>NVIDIA NRAS<small>GPU attestation service</small></span></div>
+      ${rows || '<p class="muted wwait">waiting for the first call…</p>'}
+    </div>`;
+  $("btn-replay")?.addEventListener("click", replayCalls);
+}
+
+/** Step through the last request's calls: each call shows in flight, then its answer. */
+function replayCalls() {
+  if (!lastCalls) return;
+  clearTimeout(replayTimer);
+  const all = lastCalls.entries;
+  const frames = [];
+  all.forEach((e, i) => {
+    if (e.kind === "call") frames.push({ upto: i, pendingLast: true, wait: 900 });
+    frames.push({ upto: i, pendingLast: false, wait: e.kind === "call" ? 900 : 700 });
+  });
+  let f = 0;
+  const step = () => {
+    const fr = frames[f];
+    const shown = all.slice(0, fr.upto + 1).map((e, i) => (i === fr.upto && fr.pendingLast ? { ...e, status: "pending" } : e));
+    const end = f === frames.length - 1;
+    renderCalls(shown, { title: lastCalls.title, replay: !end });
+    $("calls").querySelector(".wrow:last-child")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (!end) replayTimer = setTimeout(step, fr.wait), f++;
+  };
+  step();
 }
 
 // --- toast -----------------------------------------------------------------------

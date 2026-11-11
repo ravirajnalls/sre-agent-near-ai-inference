@@ -19,6 +19,7 @@ import { randomBytes, createHash } from "node:crypto";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
 import { fetchAttestationReport, fetchReplySignature, MODEL } from "./near-client.js";
+import { traceCall } from "./calltrace.js";
 
 const NRAS_URL = () => process.env.NRAS_URL || "https://nras.attestation.nvidia.com/v3/attest/gpu";
 
@@ -149,23 +150,36 @@ async function checkGpu(nvidiaPayload, nonce) {
     return { ok: false, why: "nvidia_payload is not JSON" };
   }
   if (strip0x(payload.nonce) !== nonce) return { ok: false, why: "GPU evidence nonce ≠ our nonce" };
+  const reqBody = JSON.stringify(payload);
+  const call = traceCall({
+    to: "nvidia",
+    method: "POST",
+    path: new URL(NRAS_URL()).pathname,
+    label: "Verify the GPU evidence with NVIDIA",
+    sent: `GPU evidence from the report · nonce ${nonce.slice(0, 12)}…`,
+    reqBytes: Buffer.byteLength(reqBody),
+  });
   try {
     const res = await fetch(NRAS_URL(), {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify(payload),
+      body: reqBody,
       signal: AbortSignal.timeout(20_000),
     });
+    const resText = await res.text();
+    call.end({ status: res.status, resBytes: Buffer.byteLength(resText) });
     if (!res.ok) return { ok: false, why: `NRAS HTTP ${res.status}` };
-    const body = await res.json();
+    const body = JSON.parse(resText);
     // NRAS answers [["JWT", "<overall token>"], {...per-GPU tokens}]; the overall verdict
     // is a claim in the first token. We read the claim; the JWT's own signature is NVIDIA's.
     const jwt = Array.isArray(body) && Array.isArray(body[0]) ? body[0][1] : null;
     const claims = jwt ? JSON.parse(Buffer.from(jwt.split(".")[1], "base64url").toString("utf8")) : {};
+    call.got = `x-nvidia-overall-att-result: ${claims["x-nvidia-overall-att-result"]}`;
     return claims["x-nvidia-overall-att-result"] === true
       ? { ok: true }
       : { ok: false, why: "NRAS overall attestation result is not true" };
   } catch (e) {
+    if (call.entry.status === "pending") call.end({ status: "error" });
     return { ok: false, why: `NRAS unreachable: ${String(e.message).slice(0, 80)}` };
   }
 }

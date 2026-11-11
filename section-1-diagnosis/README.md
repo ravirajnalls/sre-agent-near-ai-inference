@@ -48,11 +48,13 @@ docker compose stop app && npm start   # run the app on the host instead
    **See:** `report fetched` with a fresh nonce, `nonce echoed`, `TDX report_data binds signing key + nonce`, `NVIDIA GPU attestation (NRAS)` all ✓, then a ✓ list for each reply signature, and the attestation report's sha256.
 4. **Look at the proposed fix.**
    **See:** one action such as `none` (a credential problem needs a human) or `set_resources prod/inventory-api {...}` for `inventory-crashloop`, marked *valid* or *rejected by the runtime*.
-5. **Paste a bundle** containing a fake secret (e.g. `AUTH_DB_PASSWORD=hunter2 jane@example.com`) and click *Triage pasted bundle*.
+5. **Look at *Calls to NEAR AI*** and press **▶ Replay step by step**.
+   **See:** the four outbound calls in order: `GET /v1/attestation/report` (nonce only), `POST` to NVIDIA NRAS (GPU evidence), then `POST /v1/chat/completions` (the only call that carries masked evidence) and `GET /v1/signature/{chat_id}`, with the local checks between them, each with status and timing.
+6. **Paste a bundle** containing a fake secret (e.g. `AUTH_DB_PASSWORD=hunter2 jane@example.com`) and click *Triage pasted bundle*.
    **See:** the manifest shows those kinds masked *in the server*, because paste mode has no collector in front of it.
-6. **Ask the SRE agent** a follow-up in the chat under the report, e.g. *why not the database?* Include a fake secret in the question.
+7. **Ask the SRE agent** a follow-up in the chat under the report, e.g. *why not the database?* Include a fake secret in the question.
    **See:** your message is shown masked ("masked before sending"), and each answer carries an *attested · signature verified* badge.
-7. **Break attestation on purpose:** set `NEAR_BASE_URL` to a wrong host, restart, triage again.
+8. **Break attestation on purpose:** set `NEAR_BASE_URL` to a wrong host, restart, triage again.
    **See:** the request stops with *"NEAR AI attestation did not verify — no evidence was sent to the model"* and the failing check is shown.
 
 There is no live production system in the demo, so **Simulate an incident** stands in for one: it pushes a synthetic outage's traces and metrics through the redacting collector, the way real services would. Four synthetic incidents ship in `seed/scenarios.js`: `payment-db-down` (SEV1), `latency-regression` (SEV2), `inventory-crashloop` (SEV1, OOMKilled), `auth-secrets-leak` (SEV1, planted fake secrets). All telemetry is **synthetic**.
@@ -91,6 +93,7 @@ Also stated plainly in the UI: **only the model call is private.** Your laptop, 
 | POST | `/api/seed` | `{scenario}` — push synthetic OTLP traces + metrics |
 | POST | `/api/telemetry` | `{service, sinceMinutes, maxTraces}` — fetch latest error data |
 | POST | `/api/triage` | `{service, sinceMinutes, maxTraces}` or `{bundle}` — mask → attest → TEE triage → verify signature → validate action → report |
+| GET | `/api/trace/:id` | live list of the calls a running triage or chat turn has made so far (method, path, status, timing, one-line summary; no content). The browser sends `x-trace-id` and polls this; the final list also comes back as `calls` |
 | POST | `/api/chat` | `{context, history, question}` — follow-up question on a triaged incident; same mask → attest → verify path every turn. The browser holds the masked context and history; the server keeps nothing |
 
 ## How it's built
@@ -100,6 +103,7 @@ Also stated plainly in the UI: **only the model call is private.** Your laptop, 
 | `otel-collector.config.yaml` | `transform/redact` (OTTL `replace_all_patterns` / `replace_pattern` on span and event attributes and status messages, plus `redaction.masked.<kind>` tags) and a `redaction` processor backstop |
 | `redact.js` | the same rules applied server-side; builds the redaction manifest |
 | `attestation.js` | nonce, report checks, NRAS, EIP-191 reply-signature recovery (`@noble/curves`, `@noble/hashes`) |
+| `calltrace.js` | per-request list of outbound calls and local checks for the *Calls to NEAR AI* view (metadata only) |
 | `near-client.js` | the only place the API key is read: chat completions, attestation report, reply signature, timeouts (150 s for the model call, `NEAR_TIMEOUT_MS`) |
 | `prompt.js` | system prompt, report schema, fixed action list and `validateAction` |
 | `server.js`, `public/` | Express app and the ops-console UI |

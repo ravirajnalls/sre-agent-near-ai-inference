@@ -13,6 +13,7 @@ import { verifyAttestation, verifyReplySignature, attestationMode, VerificationE
 import { SYSTEM_PROMPT, RETRY_NUDGE, CHAT_PROMPT, buildUserPrompt, parseReport, validateAction } from "./prompt.js";
 import { SCENARIOS, seedScenario } from "./seed/scenarios.js";
 import { redactEvidence } from "./redact.js";
+import { newTrace, runWithTrace, endTrace, getLiveTrace, snapshot, traceLocal } from "./calltrace.js";
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -24,6 +25,28 @@ const sanitize = (msg) => String(msg).replace(/sk-[A-Za-z0-9_-]+/g, "sk-***");
 // prompts or model output (zero retention).
 const step = (route, t0, what, extra = {}) =>
   console.log(JSON.stringify({ at: new Date().toISOString(), route, step: what, ms: Date.now() - t0, ...extra }));
+
+// Call trace: every call to NEAR AI / NVIDIA a request makes, with timings and
+// one-line summaries (no content). The browser polls /api/trace/:id while the
+// request runs and gets the final list back as `calls` on the response.
+const traced = (handler) => async (req, res) => {
+  const trace = newTrace(req.get("x-trace-id"));
+  const json = res.json.bind(res);
+  res.json = (body) => json(body && typeof body === "object" ? { ...body, calls: snapshot(trace) } : body);
+  try {
+    await runWithTrace(trace, () => handler(req, res));
+  } finally {
+    endTrace(trace);
+  }
+};
+
+app.get("/api/trace/:id", (req, res) => {
+  const t = getLiveTrace(req.params.id);
+  res.json(t ? snapshot(t) : { entries: [] });
+});
+
+const checksLine = (checks = []) =>
+  checks.filter((c) => c.status !== "skip").map((c) => `${c.status === "pass" ? "✓" : "✗"} ${c.name}`).join(" · ");
 
 // --- health -----------------------------------------------------------------
 
@@ -81,7 +104,7 @@ app.post("/api/telemetry", async (req, res) => {
 
 // --- triage: telemetry (or pasted bundle) → Confidential TEE model → report -
 
-app.post("/api/triage", async (req, res) => {
+app.post("/api/triage", traced(async (req, res) => {
   const started = Date.now();
   let attestation = null;
   const signatures = [];
@@ -102,6 +125,7 @@ app.post("/api/triage", async (req, res) => {
     // The manifest records kinds and counts only, never values.
     const { masked, manifest: redaction } = redactEvidence(evidence);
     evidence = masked;
+    traceLocal("Mask the evidence (second pass)", `${redaction.totals.collector} already masked by the collector · ${redaction.totals.server} masked here`);
     step("triage", started, "evidence masked", { mode: evidence.mode, maskedByCollector: redaction.totals.collector, maskedByServer: redaction.totals.server });
     const evidenceChars = JSON.stringify(evidence).length;
     const userPrompt = buildUserPrompt(evidence);
@@ -110,6 +134,7 @@ app.post("/api/triage", async (req, res) => {
     // evidence leaves this process. In strict mode a failed check throws here.
     step("triage", started, "attesting NEAR AI (fresh nonce)");
     attestation = await verifyAttestation();
+    traceLocal("Check the attestation", checksLine(attestation.checks) || "skipped (ATTESTATION_MODE=off)", attestation.verified);
     step("triage", started, "attestation done", { verified: attestation.verified, mode: attestation.mode });
 
     // One retry-nudge if the model doesn't return clean JSON; then degrade to raw text.
@@ -136,6 +161,7 @@ app.post("/api/triage", async (req, res) => {
       step("triage", started, `model reply ${attempts}`, { modelMs: lastResult.elapsedMs });
       // Design step 5: check the signature on every reply (strict mode throws).
       signatures.push(await verifyReplySignature(lastResult, attestation));
+      traceLocal("Check the reply signature", checksLine(signatures.at(-1).checks), signatures.at(-1).verified);
       step("triage", started, `reply ${attempts} signature`, { verified: signatures.at(-1).verified });
       rawText = lastResult.content;
       report = parseReport(rawText);
@@ -144,6 +170,7 @@ app.post("/api/triage", async (req, res) => {
     // Rule #3 (first gate): only an action from the fixed list, with well-formed
     // params, may go forward. Section 2 submits a "valid" action to the NEAR contract.
     const actionCheck = report ? validateAction(report.action) : null;
+    if (actionCheck) traceLocal("Check the proposed fix against the list", `${actionCheck.action?.type || "?"}: ${actionCheck.status}`, actionCheck.status === "valid");
 
     // Logs carry sizes and timings only — never telemetry or model output.
     console.log(
@@ -196,20 +223,21 @@ app.post("/api/triage", async (req, res) => {
     });
   } catch (e) {
     console.log(JSON.stringify({ at: new Date().toISOString(), route: "triage", error: sanitize(e.message).slice(0, 120) }));
+    traceLocal("Stopped", sanitize(e.message).slice(0, 140), false);
     const verification =
       e instanceof VerificationError
         ? { mode: attestationMode(), attestation: attestation || e.verification, signatures: attestation ? [...signatures, e.verification] : [] }
         : undefined;
     res.status(502).json({ error: sanitize(e.message), verification });
   }
-});
+}));
 
 // --- chat: follow-up questions on a triaged incident ------------------------
 // Same pipeline as triage for every turn: mask → fresh attestation → TEE model →
 // reply signature. The server keeps nothing between turns; the browser sends the
 // masked incident context and the recent history back with each question.
 
-app.post("/api/chat", async (req, res) => {
+app.post("/api/chat", traced(async (req, res) => {
   const started = Date.now();
   let attestation = null;
   const signatures = [];
@@ -228,8 +256,10 @@ app.post("/api/chat", async (req, res) => {
       question: question.slice(0, 2000),
     });
 
+    traceLocal("Mask the question, history and context", `${redaction.totals.server} value(s) masked here`);
     step("chat", started, "attesting NEAR AI (fresh nonce)", { maskedByServer: redaction.totals.server });
     attestation = await verifyAttestation();
+    traceLocal("Check the attestation", checksLine(attestation.checks) || "skipped (ATTESTATION_MODE=off)", attestation.verified);
     step("chat", started, "attestation done → model call", { verified: attestation.verified });
     const messages = [
       { role: "system", content: CHAT_PROMPT },
@@ -240,6 +270,7 @@ app.post("/api/chat", async (req, res) => {
     ];
     const result = await triageComplete(messages, { temperature: 0.3 });
     signatures.push(await verifyReplySignature(result, attestation));
+    traceLocal("Check the reply signature", checksLine(signatures.at(-1).checks), signatures.at(-1).verified);
 
     console.log(
       JSON.stringify({
@@ -267,6 +298,7 @@ app.post("/api/chat", async (req, res) => {
     });
   } catch (e) {
     console.log(JSON.stringify({ at: new Date().toISOString(), route: "chat", error: sanitize(e.message).slice(0, 120) }));
+    traceLocal("Stopped", sanitize(e.message).slice(0, 140), false);
     const verification =
       e instanceof VerificationError
         ? { mode: attestationMode(), attestation: attestation || e.verification, signatures: attestation ? [...signatures, e.verification] : [] }
@@ -274,7 +306,7 @@ app.post("/api/chat", async (req, res) => {
     res.status(e.message?.startsWith("question is empty") || e.message?.startsWith("no incident context") ? 400 : 502)
       .json({ error: sanitize(e.message), verification });
   }
-});
+}));
 
 const port = Number(process.env.PORT) || 3000;
 app.listen(port, () => {
