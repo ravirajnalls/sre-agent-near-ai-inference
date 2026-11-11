@@ -1,4 +1,5 @@
 global:
   scrape_interval: 15s
 
-# No scrape targets: the seed pushes OTLP metrics to the collector, which remote-writes them.
+# No scrape targets: the seeder pushes OTLP metrics straight to Prometheus's native
+# OTLP receiver (/api/v1/otlp/v1/metrics, enabled by --web.enable-otlp-receiver).

@@ -9,4 +9,4 @@ The design lives in [design/](design/DESIGN.md) and is the single source of trut
 - [UI-DESIGN.md](design/UI-DESIGN.md) — wireframes, interaction flow, demo script
 - [VERIFICATION-AND-EXECUTION-PLAN.md](design/VERIFICATION-AND-EXECUTION-PLAN.md) — go/no-go gates, timeline, abort criteria
 
-**Status: design awaiting review — no code is executed until the design is approved.**
+**Status: built Nov 11.** The design below was approved and implemented; see [README.md](README.md) for how to run it.

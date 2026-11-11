@@ -8,7 +8,7 @@ surfaced in the UI. Section 2 — **gated remediation** (redacting collector, bo
 contract gate, executor) — is designed in [`../section-2-gating/DESIGN.md`](../../section-2-gating/DESIGN.md)
 and builds on top of this section through Nov 14.
 
-**Status: DRAFT — awaiting review. No code is written or changed until this design is approved.**
+**Status: built Nov 11.** ADR-004 was superseded during the build (see the table).
 
 ## 1 · Problem
 
@@ -42,8 +42,8 @@ Telemetry already lives in your observability stack. The user picks **service + 
 │         ▼                                                                               │
 │  ┌────────────────────────┐        OTLP gRPC ─► Jaeger all-in-one                      │
 │  │ OpenTelemetry Collector │                        trace store + query API :16686     │
-│  │  otlp receiver :4318    │        remote_write ► Prometheus :9090                     │
-│  └────────────────────────┘                        (standard remote-write, no flags)     │
+│  │  otlp receiver :4318    │   (metrics go seeder ► Prometheus OTLP receiver :9090)      │
+│  └────────────────────────┘                        (see ADR-004, superseded)            │
 └────────┬──────────────────────────────┬────────────────────────────────────────────────┘
          │ GET /api/traces              │ GET /api/v1/query_range
          │ ?service&start&end&limit     │ ?query=<PromQL>
@@ -69,7 +69,7 @@ Telemetry already lives in your observability stack. The user picks **service + 
 | 001 | Node 20+ / Express, vanilla HTML+JS, no build step | one process, fewest demo failure modes, 4-hour solo budget |
 | 002 | Zero persistence (no DB, no files, in-request state only) | true and demonstrable — "nothing is stored" is the privacy story |
 | 003 | Jaeger all-in-one as trace store | OTLP receiver + query API in one container; error spans carry root-cause signal |
-| 004 | Prometheus via **standard remote-write from the collector** | removes the experimental `otlp-write-receiver` flag from the previous attempt |
+| 004 | ~~Prometheus via standard remote-write from the collector~~ **Superseded:** metrics go straight from the seeder to Prometheus 3's native OTLP receiver (`--web.enable-otlp-receiver`); the collector carries traces only | the `prometheusremotewrite` exporter rejected multi-point cumulative series as "out of order" on fresh stores |
 | 005 | **OTel Collector between seeder and stores** | canonical OTel pipeline (matches the stack's own story); validates OTLP payloads strictly (catches bad payloads loudly instead of storing garbage); fans out to Jaeger + Prometheus |
 | 006 | Seed as OTLP/HTTP **JSON with proto3-JSON string enums** (`"SPAN_KIND_SERVER"`, `"STATUS_CODE_ERROR"`) | the aborted run stored spans under service `undefined` — integer enums are invalid proto3 JSON; string names are the spec-correct encoding |
 | 007 | Model `z-ai/glm-5.3-flash`, `enable_thinking: false`, temp 0.2, 60 s abort timeout | Confidential TEE tier + latency a live demo survives |

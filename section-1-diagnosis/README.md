@@ -34,7 +34,7 @@ Prerequisites: Docker, Node 20+, a NEAR AI Cloud API key ([nearbuilders.org/dash
 
 ```bash
 cd section-1-diagnosis
-docker compose up -d          # Jaeger (16686, 4318) + Prometheus (9090)
+docker compose up -d          # Jaeger (16686) + Prometheus (9090) + OTel Collector (4318)
 npm install
 cp .env.example .env           # put NEARAI_API_KEY=sk-... in it; .env is gitignored
 npm run seed -- payment-db-down   # emit a synthetic incident

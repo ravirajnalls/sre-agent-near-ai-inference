@@ -21,13 +21,25 @@ export async function triageComplete(messages, opts = {}) {
     chat_template_kwargs: { enable_thinking: false },
   };
   const started = Date.now();
-  const res = await fetch(`${BASE()}/chat/completions`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  // ADR-007: a hung model call must not hang the request (or the demo).
+  const timeoutMs = opts.timeoutMs ?? (Number(process.env.NEAR_TIMEOUT_MS) || 60_000);
+  let res;
+  let text;
+  try {
+    res = await fetch(`${BASE()}/chat/completions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    text = await res.text();
+  } catch (e) {
+    if (e?.name === "TimeoutError" || e?.name === "AbortError") {
+      throw new Error(`NEAR AI Cloud did not answer within ${Math.round(timeoutMs / 1000)}s`);
+    }
+    throw e;
+  }
   const elapsedMs = Date.now() - started;
-  const text = await res.text();
   if (!res.ok) {
     throw new Error(`NEAR AI Cloud HTTP ${res.status}: ${text.slice(0, 200)}`);
   }
