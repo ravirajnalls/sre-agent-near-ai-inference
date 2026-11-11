@@ -57,6 +57,8 @@ docker compose stop app && npm start   # run the app on the host instead
 8. **Break attestation on purpose:** set `NEAR_BASE_URL` to a wrong host, restart, triage again.
    **See:** the request stops with *"NEAR AI attestation did not verify — no evidence was sent to the model"* and the failing check is shown.
 
+**Start clean** between demo runs: `bash reset-telemetry.sh` (from `section-1-diagnosis/`, in WSL). It recreates the Jaeger and Prometheus containers, which keep data in memory only, so every trace and metric is gone in a few seconds. The app and collector keep running.
+
 There is no live production system in the demo, so **Simulate an incident** stands in for one: it pushes a synthetic outage's traces and metrics through the redacting collector, the way real services would. Four synthetic incidents ship in `seed/scenarios.js`: `payment-db-down` (SEV1), `latency-regression` (SEV2), `inventory-crashloop` (SEV1, OOMKilled), `auth-secrets-leak` (SEV1, planted fake secrets). All telemetry is **synthetic**.
 
 ### Verification modes

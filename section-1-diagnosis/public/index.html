@@ -52,6 +52,7 @@
         <h2>Simulate an incident</h2>
         <p class="explain">There is no live production system in this demo, so these buttons play the outage: each one pushes a synthetic incident's traces and metrics through the redacting collector, exactly as a real service would. Pick one, then Fetch telemetry or Triage privately. <b>auth-secrets-leak</b> plants fake secrets to show the masking.</p>
         <div id="scenarios"><p class="muted">loading…</p></div>
+        <p class="note">Start clean: <span class="mono">bash reset-telemetry.sh</span> empties Jaeger and Prometheus (both keep data in memory only).</p>
       </section>
 
       <section class="card">
