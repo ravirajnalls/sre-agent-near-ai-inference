@@ -7,15 +7,22 @@ services:
       - COLLECTOR_OTLP_ENABLED=true
     ports:
       - "16686:16686"   # UI + query API
-      - "4318:4318"     # OTLP/HTTP receiver (JSON accepted)
 
   prometheus:
     image: prom/prometheus:v2.55.1
     command:
       - --config.file=/etc/prometheus/prometheus.yml
-      - --enable-feature=otlp-write-receiver
       - --web.enable-lifecycle
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
       - "9090:9090"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.112.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4318:4318"     # OTLP/HTTP receiver — what the seeder targets
+      - "13133:13133"   # health check

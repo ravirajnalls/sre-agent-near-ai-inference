@@ -20,6 +20,7 @@ async function refreshHealth() {
   try {
     const h = await (await fetch("/api/health")).json();
     setDot("dot-key", h.keyConfigured);
+    setDot("dot-collector", h.collector === "ok");
     setDot("dot-jaeger", h.jaeger === "ok");
     setDot("dot-prom", h.prometheus === "ok");
     $("model-badge").textContent = `${h.tier} · ${h.model}`;

@@ -2,10 +2,15 @@
 // instrumented service would send — to Jaeger (:4318) and Prometheus (OTLP write receiver).
 // All services, exceptions and numbers are fictional.
 
-const JAEGER_OTLP = () => process.env.JAEGER_OTLP_URL || "http://localhost:4318";
-const PROM = () => process.env.PROM_URL || "http://localhost:9090";
+const COLLECTOR = () => process.env.OTEL_COLLECTOR_URL || "http://localhost:4318";
 
-const KIND = { internal: 1, server: 2, client: 3 };
+// proto3-JSON encodes enums as their string names — integer enums are invalid
+// and are what corrupted the first seeding attempt (service showed as "undefined").
+const KIND = {
+  internal: "SPAN_KIND_INTERNAL",
+  server: "SPAN_KIND_SERVER",
+  client: "SPAN_KIND_CLIENT",
+};
 
 function hex(n) {
   let s = "";
@@ -48,12 +53,14 @@ function makeSpan({ traceId, spanId, parentSpanId, service, name, kind, startMs,
     traceId,
     spanId,
     name,
-    kind: KIND[kind] ?? 1,
+    kind: KIND[kind] ?? "SPAN_KIND_INTERNAL",
     startTimeUnixNano: String(Math.round(startMs * 1e6)),
     endTimeUnixNano: String(Math.round((startMs + durationMs) * 1e6)),
     attributes,
     ...(events.length ? { events } : {}),
-    status: error ? { code: 2, ...(exception?.message ? { message: exception.message.slice(0, 200) } : {}) } : { code: 1 },
+    status: error
+      ? { code: "STATUS_CODE_ERROR", ...(exception?.message ? { message: exception.message.slice(0, 200) } : {}) }
+      : { code: "STATUS_CODE_OK" },
   };
   if (parentSpanId) span.parentSpanId = parentSpanId;
   return span;
@@ -99,12 +106,12 @@ async function pushTrace(spans) {
     resource: { attributes: [attr("service.name", service)] },
     scopeSpans: [{ scope: { name: "attested-agent-sandbox-seed" }, spans: svcSpans }],
   }));
-  const res = await fetch(`${JAEGER_OTLP()}/v1/traces`, {
+  const res = await fetch(`${COLLECTOR()}/v1/traces`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ resourceSpans }),
   });
-  if (!res.ok) throw new Error(`Jaeger OTLP push HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`);
+  if (!res.ok) throw new Error(`OTel collector trace push HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`);
 }
 
 async function pushMetrics(metrics, startMs, stepMs) {
@@ -124,7 +131,7 @@ async function pushMetrics(metrics, startMs, stepMs) {
           },
         ];
         return m.type === "counter"
-          ? { name: m.name, sum: { isMonotonic: true, aggregationTemporality: 2, dataPoints } }
+          ? { name: m.name, sum: { isMonotonic: true, aggregationTemporality: "AGGREGATION_TEMPORALITY_CUMULATIVE", dataPoints } }
           : { name: m.name, gauge: { dataPoints } };
       });
     if (!payload.length) continue;
@@ -136,12 +143,12 @@ async function pushMetrics(metrics, startMs, stepMs) {
         },
       ],
     };
-    const res = await fetch(`${PROM()}/api/v1/otlp/v1/metrics`, {
+    const res = await fetch(`${COLLECTOR()}/v1/metrics`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`Prometheus OTLP push HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`);
+    if (!res.ok) throw new Error(`OTel collector metric push HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`);
     pushes++;
   }
   return pushes;
@@ -205,7 +212,7 @@ const paymentDbDown = (windowMs, n) => ({
   })),
   metrics: [
     { name: "http_requests_total", type: "counter", labels: { service: "checkout", status: "500", route: "/api/checkout" }, points: [2, 9, 28, 75, 160, 268] },
-    { name: "http_requests_total", type: "counter", labels: { service: "checkout", status: "200", route: "/api/checkout" }, points: [940, 905, 810, 590, 300, 110] },
+    { name: "http_requests_total", type: "counter", labels: { service: "checkout", status: "200", route: "/api/checkout" }, points: [940, 1845, 2655, 3245, 3545, 3655] },
     { name: "http_request_duration_seconds", type: "gauge", labels: { service: "checkout", route: "/api/checkout" }, points: [0.31, 0.34, 0.62, 1.1, 1.61, 1.94] },
   ],
 });
@@ -257,7 +264,7 @@ const latencyRegression = (windowMs, n) => ({
   })),
   metrics: [
     { name: "http_requests_total", type: "counter", labels: { service: "checkout", status: "504", route: "/api/cart" }, points: [0, 3, 11, 26, 44, 61] },
-    { name: "http_requests_total", type: "counter", labels: { service: "checkout", status: "200", route: "/api/cart" }, points: [880, 860, 790, 640, 430, 260] },
+    { name: "http_requests_total", type: "counter", labels: { service: "checkout", status: "200", route: "/api/cart" }, points: [880, 1740, 2530, 3170, 3600, 3860] },
     { name: "http_request_duration_seconds", type: "gauge", labels: { service: "checkout", route: "/api/cart" }, points: [0.42, 1.1, 1.95, 2.6, 3.2, 3.8] },
   ],
 });

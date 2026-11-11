@@ -1,8 +1,9 @@
 // Jaeger query client — real HTTP API, nothing faked.
 
 /**
- * Fetch the latest error traces for a service.
- * Jaeger REST: GET /api/traces?service=…&tags={"error":true}&start=…&end=… (microseconds)
+ * Fetch the latest traces for a service and keep only the error spans.
+ * ADR-010: we query by service + time range only (no Jaeger `tags` param — it
+ * proved version-fragile) and filter error spans in our own code.
  */
 export async function fetchErrorTraces({ service, sinceMinutes, maxTraces = 20 }) {
   const base = process.env.JAEGER_URL || "http://localhost:16686";
@@ -13,29 +14,38 @@ export async function fetchErrorTraces({ service, sinceMinutes, maxTraces = 20 }
     start: String(startMicros),
     end: String(endMicros),
     limit: String(maxTraces),
-    tags: JSON.stringify({ error: true }),
   });
   const url = `${base}/api/traces?${params}`;
   const res = await fetch(url, { headers: { accept: "application/json" } });
   if (!res.ok) throw new Error(`Jaeger HTTP ${res.status}`);
   const json = await res.json();
 
-  const traces = (json.data || []).map((t) => ({
-    traceID: t.traceID,
-    spans: (t.spans || []).map((s) => ({
-      service: t.processes?.[s.processID]?.serviceName || "unknown",
-      operation: s.operationName,
-      startMs: Math.round(s.startTime / 1000),
-      durationMs: Math.round(s.duration / 1000),
-      tags: tagMap(s.tags),
-      logFields: (s.logs || []).flatMap((l) => (l.fields || []).map((f) => ({ key: f.key, value: f.value }))),
-    })),
-  }));
+  const traces = (json.data || [])
+    .map((t) => ({
+      traceID: t.traceID,
+      spans: (t.spans || [])
+        .filter(isErrorSpan)
+        .map((s) => ({
+          service: t.processes?.[s.processID]?.serviceName || "unknown",
+          operation: s.operationName,
+          startMs: Math.round(s.startTime / 1000),
+          durationMs: Math.round(s.duration / 1000),
+          tags: tagMap(s.tags),
+          logFields: (s.logs || []).flatMap((l) => (l.fields || []).map((f) => ({ key: f.key, value: f.value }))),
+        })),
+    }))
+    .filter((t) => t.spans.length > 0);
 
-  const query = `${base}/api/traces?service=${encodeURIComponent(service)}&tags=${encodeURIComponent(
-    '{"error":true}',
-  )}&start=<${sinceMinutes}m ago>&limit=${maxTraces}`;
+  const query = `${base}/api/traces?service=${encodeURIComponent(service)}&start=<${sinceMinutes}m ago>&limit=${maxTraces}`;
   return { query, traces };
+}
+
+/** An error span: error tag, ERROR status, or an exception event/attribute. */
+function isErrorSpan(span) {
+  const tags = tagMap(span.tags);
+  if (tags.error === true || tags["otel.status_code"] === "ERROR") return true;
+  if (tags["exception.type"] || tags["exception.message"]) return true;
+  return (span.logs || []).some((l) => (l.fields || []).some((f) => f.key === "exception.type" || f.key === "exception.message"));
 }
 
 function tagMap(tags) {

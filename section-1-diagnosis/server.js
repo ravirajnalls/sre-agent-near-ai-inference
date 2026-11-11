@@ -21,9 +21,10 @@ const sanitize = (msg) => String(msg).replace(/sk-[A-Za-z0-9_-]+/g, "sk-***");
 // --- health -----------------------------------------------------------------
 
 app.get("/api/health", async (_req, res) => {
-  const [j, p] = await Promise.allSettled([
+  const [j, p, c] = await Promise.allSettled([
     fetch(`${process.env.JAEGER_URL || "http://localhost:16686"}/api/services`, { headers: { accept: "application/json" } }),
     fetch(`${process.env.PROM_URL || "http://localhost:9090"}/api/v1/status/buildinfo`),
+    fetch(`${process.env.OTEL_COLLECTOR_URL ? process.env.OTEL_COLLECTOR_URL.replace(":4318", ":13133") : "http://localhost:13133"}`),
   ]);
   res.json({
     keyConfigured: Boolean(process.env.NEARAI_API_KEY),
@@ -31,6 +32,7 @@ app.get("/api/health", async (_req, res) => {
     tier: tierInfo.tier,
     jaeger: j.status === "fulfilled" && j.value.ok ? "ok" : "unreachable",
     prometheus: p.status === "fulfilled" && p.value.ok ? "ok" : "unreachable",
+    collector: c.status === "fulfilled" && c.value.ok ? "ok" : "unreachable",
   });
 });
 
