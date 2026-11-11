@@ -20,6 +20,11 @@ app.use(express.static("public"));
 
 const sanitize = (msg) => String(msg).replace(/sk-[A-Za-z0-9_-]+/g, "sk-***");
 
+// Step-by-step progress lines: names, counts and timings only — never telemetry,
+// prompts or model output (zero retention).
+const step = (route, t0, what, extra = {}) =>
+  console.log(JSON.stringify({ at: new Date().toISOString(), route, step: what, ms: Date.now() - t0, ...extra }));
+
 // --- health -----------------------------------------------------------------
 
 app.get("/api/health", async (_req, res) => {
@@ -97,12 +102,15 @@ app.post("/api/triage", async (req, res) => {
     // The manifest records kinds and counts only, never values.
     const { masked, manifest: redaction } = redactEvidence(evidence);
     evidence = masked;
+    step("triage", started, "evidence masked", { mode: evidence.mode, maskedByCollector: redaction.totals.collector, maskedByServer: redaction.totals.server });
     const evidenceChars = JSON.stringify(evidence).length;
     const userPrompt = buildUserPrompt(evidence);
 
     // Design step 4: verify NEAR AI attestation with a fresh nonce BEFORE any
     // evidence leaves this process. In strict mode a failed check throws here.
+    step("triage", started, "attesting NEAR AI (fresh nonce)");
     attestation = await verifyAttestation();
+    step("triage", started, "attestation done", { verified: attestation.verified, mode: attestation.mode });
 
     // One retry-nudge if the model doesn't return clean JSON; then degrade to raw text.
     let report = null;
@@ -123,9 +131,12 @@ app.post("/api/triage", async (req, res) => {
               { role: "assistant", content: rawText || "" },
               { role: "user", content: RETRY_NUDGE },
             ];
+      step("triage", started, `model call ${attempts} → TEE (reasoning, can take a minute)`);
       lastResult = await triageComplete(messages);
+      step("triage", started, `model reply ${attempts}`, { modelMs: lastResult.elapsedMs });
       // Design step 5: check the signature on every reply (strict mode throws).
       signatures.push(await verifyReplySignature(lastResult, attestation));
+      step("triage", started, `reply ${attempts} signature`, { verified: signatures.at(-1).verified });
       rawText = lastResult.content;
       report = parseReport(rawText);
     }
@@ -214,7 +225,9 @@ app.post("/api/chat", async (req, res) => {
       question: question.slice(0, 2000),
     });
 
+    step("chat", started, "attesting NEAR AI (fresh nonce)", { maskedByServer: redaction.totals.server });
     attestation = await verifyAttestation();
+    step("chat", started, "attestation done → model call", { verified: attestation.verified });
     const messages = [
       { role: "system", content: CHAT_PROMPT },
       { role: "user", content: `Incident context (masked evidence and your earlier report, JSON):\n\n${masked.context}` },
