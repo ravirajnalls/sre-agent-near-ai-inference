@@ -269,6 +269,34 @@ function renderAction(ac) {
     <p class="muted">Not applied. In Section 2 a valid action goes to the NEAR contract, which approves, parks or rejects it; only the executor can change the cluster.</p>`;
 }
 
+function renderFlow(r) {
+  const p = r.privacy || {};
+  const v = p.verification || {};
+  const sigs = v.signatures || [];
+  const st = (ok) => (ok === true ? "ok" : ok === false ? "bad" : "idle");
+  const steps = [
+    ["1", "Masked on your side", p.redaction ? `${p.redaction.totals.collector} in collector · ${p.redaction.totals.server} in server` : "—", p.redaction ? true : null],
+    ["2", "TEE attested", v.attestation ? `fresh nonce ${esc((v.attestation.nonce || "").slice(0, 10))}…` : "—", v.attestation ? v.attestation.verified : null],
+    ["3", "Inference inside the TEE", p.model ? `${esc(p.model)} · ${((p.modelMs || 0) / 1000).toFixed(1)}s` : "—", p.model ? true : null],
+    ["4", "Reply signed by the TEE key", sigs.length ? `${sigs.filter((x) => x.verified).length}/${sigs.length} signature(s) verified` : "—", sigs.length ? sigs.every((x) => x.verified) : null],
+    ["5", "Fix checked against the list", r.actionCheck ? esc(r.actionCheck.status) : "—", r.actionCheck ? r.actionCheck.status === "valid" : null],
+  ];
+  return `<h3>how this request went through the TEE</h3><div class="flow">${steps
+    .map(([n, t, d, ok]) => `<div class="fstep ${st(ok)}"><span class="fn mono">${n}</span><b>${t}</b><span class="muted">${d}</span></div>`)
+    .join('<span class="farrow">→</span>')}</div>`;
+}
+
+function renderRaw(r) {
+  const p = r.privacy || {};
+  const v = p.verification || {};
+  const block = (title, obj) => (obj == null ? "" : `<h3>${esc(title)}</h3><pre class="raw">${esc(typeof obj === "string" ? obj : JSON.stringify(obj, null, 2))}</pre>`);
+  return `<details class="rawbox"><summary>raw evidence: model reply, attestation report, signatures</summary>
+    ${block("model reply text (exactly what the TEE returned and signed)", p.rawModelContent)}
+    ${block("attestation: our nonce and each TEE node's report", v.attestation ? { nonce: v.attestation.nonce, report_sha256: v.attestation.reportSha256, nodes: v.attestation.nodes } : null)}
+    ${(v.signatures || []).map((x, i) => block(`reply signature #${i + 1}`, x.raw)).join("")}
+  </details>`;
+}
+
 function renderPrivacy(r) {
   const p = r.privacy || {};
   const v = p.verification;
@@ -278,7 +306,7 @@ function renderPrivacy(r) {
     const badge = a.verified
       ? '<span class="vbadge ok">attestation verified</span>'
       : `<span class="vbadge bad">NOT verified · mode ${esc(v.mode)}</span>`;
-    attest = `<div>${badge}</div>
+    attest += `<div>${badge}</div>
       ${renderChecks("attestation (before any data was sent)", a.checks)}
       ${(v.signatures || []).map((s, i) => renderChecks(`reply signature #${i + 1}`, s.checks)).join("")}
       ${a.reportSha256 ? `<p class="muted mono">attestation report sha256 ${esc(a.reportSha256)}</p>` : ""}`;
@@ -299,6 +327,7 @@ function renderPrivacy(r) {
         : "") +
       attest;
   }
+  attest = renderFlow(r) + attest;
   if (p.model) {
     attest += `<h3>response metadata</h3><pre class="raw">${esc(
       JSON.stringify({ model: p.model, responseId: p.responseId, usage: p.usage, modelMs: p.modelMs, attempts: p.attempts }, null, 2),
@@ -321,7 +350,8 @@ function renderPrivacy(r) {
       </div>
     </div>
     ${attest}
-    <p class="scope">${esc(p.scope || "")}</p>`;
+    <p class="scope">${esc(p.scope || "")}</p>
+    ${renderRaw(r)}`;
 }
 
 // --- chat ------------------------------------------------------------------------

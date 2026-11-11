@@ -79,6 +79,7 @@ export async function verifyAttestation() {
   const perNode = await Promise.all(entries.slice(0, 8).map((m) => checkNode(m, nonce)));
   const good = perNode.filter((n) => n.ok);
   const attestedAddresses = good.map((n) => n.address);
+  const nodes = perNode.map((n) => ({ ...n.raw, gpu_verdict: n.gpu?.ok ? "true" : n.gpu?.why || "false", node_ok: n.ok }));
 
   checks.push(summarise("nonce echoed in report", perNode, "nonceEchoed"));
   checks.push(summarise("TDX report_data binds signing key + nonce", perNode, "reportData"));
@@ -91,7 +92,7 @@ export async function verifyAttestation() {
     ),
   );
 
-  return finish({ mode, nonce, checks, attestedAddresses, reportSha256: sha256hex(reportText) });
+  return finish({ mode, nonce, checks, attestedAddresses, reportSha256: sha256hex(reportText), nodes });
 }
 
 async function checkNode(m, nonce) {
@@ -102,8 +103,14 @@ async function checkNode(m, nonce) {
     ? { ok: true }
     : { ok: false, why: "request_nonce does not match our nonce" };
 
+  out.raw = {
+    signing_address: out.address,
+    request_nonce: m.request_nonce ?? null,
+    intel_quote_bytes: m.intel_quote ? strip0x(m.intel_quote).length / 2 : 0,
+  };
   try {
     const rd = tdxReportData(m.intel_quote);
+    out.raw.report_data = rd.toString("hex");
     const addrBytes = Buffer.alloc(32);
     Buffer.from(address, "hex").copy(addrBytes);
     const keyOk = rd.subarray(0, 32).equals(addrBytes);
@@ -170,9 +177,9 @@ function summarise(name, nodes, key) {
   return check(name, passed ? "warn" : "fail", `${passed}/${nodes.length} node(s) pass — ${why}`);
 }
 
-function finish({ mode, nonce, checks, attestedAddresses, reportSha256 = null }) {
+function finish({ mode, nonce, checks, attestedAddresses, reportSha256 = null, nodes = [] }) {
   const verified = attestedAddresses.length > 0 && !checks.some((c) => c.status === "fail");
-  const result = { mode, verified, nonce, checks, attestedAddresses, reportSha256 };
+  const result = { mode, verified, nonce, checks, attestedAddresses, reportSha256, nodes };
   if (mode === "strict" && !verified) {
     throw new VerificationError(
       "NEAR AI attestation did not verify — no evidence was sent to the model (ATTESTATION_MODE=strict)",
@@ -233,7 +240,20 @@ export async function verifyReplySignature(reply, attestation) {
     }
   }
   const verified = checks.length > 0 && checks.every((c) => c.status === "pass");
-  const result = { mode, verified, checks };
+  const result = {
+    mode,
+    verified,
+    checks,
+    raw: {
+      chat_id: reply.id,
+      sha256_request_body: sha256hex(reply.requestBody),
+      sha256_response_text: sha256hex(reply.responseText),
+      signed_text: sig?.text ?? null,
+      signature: sig?.signature ?? null,
+      signing_address: sig?.signing_address ?? null,
+      signing_algo: sig?.signing_algo ?? null,
+    },
+  };
   if (mode === "strict" && !verified) {
     throw new VerificationError("Model reply signature did not verify — report discarded (ATTESTATION_MODE=strict)", result);
   }

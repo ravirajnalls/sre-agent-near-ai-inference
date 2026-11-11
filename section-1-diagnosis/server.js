@@ -184,6 +184,9 @@ app.post("/api/triage", async (req, res) => {
         attempts,
         verification: { mode: attestation.mode, attestation, signatures },
         redaction,
+        // The model's raw reply text for this request, exactly as signed (zero retention:
+        // returned to the caller, never logged or stored).
+        rawModelContent: lastResult?.content ?? null,
         scope:
           (attestation.verified
             ? "Only the model call is private: it ran on a Confidential TEE node whose attestation and reply signatures were verified for this request. "
