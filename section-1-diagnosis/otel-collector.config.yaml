@@ -4,6 +4,58 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
+# Rule #1 of the design, "Redact first": secrets are masked HERE, in the pipeline,
+# before anything is stored or leaves. Each secret becomes a kind-named placeholder
+# such as [REDACTED:email] (the kind, never the value), and every span that had one
+# masked is tagged redaction.masked.<kind> = true.
+# The same patterns live in redact.js, which re-checks every evidence object in the
+# server before the model call. Keep the two in sync.
+processors:
+  transform/redact:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - 'replace_all_patterns(attributes, "value", "(?i)\\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\\+srv)?|redis|rediss|amqps?|mssql|jdbc:[a-z]+)://[^\\s<>,;]+", "[REDACTED:connection_string]")'
+          - 'replace_pattern(status.message, "(?i)\\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\\+srv)?|redis|rediss|amqps?|mssql|jdbc:[a-z]+)://[^\\s<>,;]+", "[REDACTED:connection_string]")'
+          - 'replace_all_patterns(attributes, "value", "\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}", "[REDACTED:jwt]")'
+          - 'replace_pattern(status.message, "\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}", "[REDACTED:jwt]")'
+          - 'replace_all_patterns(attributes, "value", "(?i)\\bBearer\\s+[A-Za-z0-9._~+/=-]{8,}", "[REDACTED:bearer_token]")'
+          - 'replace_pattern(status.message, "(?i)\\bBearer\\s+[A-Za-z0-9._~+/=-]{8,}", "[REDACTED:bearer_token]")'
+          - 'replace_all_patterns(attributes, "value", "\\b(?:sk|pk|rk)[-_](?:live[-_]|test[-_])?[A-Za-z0-9_-]{16,}|\\bAKIA[0-9A-Z]{16}\\b|\\bgh[pousr]_[A-Za-z0-9]{30,}|\\bxox[abpr]-[A-Za-z0-9-]{10,}", "[REDACTED:api_key]")'
+          - 'replace_pattern(status.message, "\\b(?:sk|pk|rk)[-_](?:live[-_]|test[-_])?[A-Za-z0-9_-]{16,}|\\bAKIA[0-9A-Z]{16}\\b|\\bgh[pousr]_[A-Za-z0-9]{30,}|\\bxox[abpr]-[A-Za-z0-9-]{10,}", "[REDACTED:api_key]")'
+          - 'replace_all_patterns(attributes, "value", "(?i)\\b[A-Za-z0-9_]*(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret)\\s*[=:]\\s*[^\\s,;&]+", "[REDACTED:credential]")'
+          - 'replace_pattern(status.message, "(?i)\\b[A-Za-z0-9_]*(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret)\\s*[=:]\\s*[^\\s,;&]+", "[REDACTED:credential]")'
+          - 'replace_all_patterns(attributes, "value", "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b", "[REDACTED:email]")'
+          - 'replace_pattern(status.message, "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b", "[REDACTED:email]")'
+      - context: spanevent
+        statements:
+          - 'replace_all_patterns(attributes, "value", "(?i)\\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\\+srv)?|redis|rediss|amqps?|mssql|jdbc:[a-z]+)://[^\\s<>,;]+", "[REDACTED:connection_string]")'
+          - 'replace_all_patterns(attributes, "value", "\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}", "[REDACTED:jwt]")'
+          - 'replace_all_patterns(attributes, "value", "(?i)\\bBearer\\s+[A-Za-z0-9._~+/=-]{8,}", "[REDACTED:bearer_token]")'
+          - 'replace_all_patterns(attributes, "value", "\\b(?:sk|pk|rk)[-_](?:live[-_]|test[-_])?[A-Za-z0-9_-]{16,}|\\bAKIA[0-9A-Z]{16}\\b|\\bgh[pousr]_[A-Za-z0-9]{30,}|\\bxox[abpr]-[A-Za-z0-9-]{10,}", "[REDACTED:api_key]")'
+          - 'replace_all_patterns(attributes, "value", "(?i)\\b[A-Za-z0-9_]*(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret)\\s*[=:]\\s*[^\\s,;&]+", "[REDACTED:credential]")'
+          - 'replace_all_patterns(attributes, "value", "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b", "[REDACTED:email]")'
+      - context: span
+        statements:
+          - 'set(attributes["redaction.masked.connection_string"], true) where IsMatch(attributes["exception.message"], "\\[REDACTED:connection_string\\]") or IsMatch(status.message, "\\[REDACTED:connection_string\\]")'
+          - 'set(attributes["redaction.masked.jwt"], true) where IsMatch(attributes["exception.message"], "\\[REDACTED:jwt\\]") or IsMatch(status.message, "\\[REDACTED:jwt\\]")'
+          - 'set(attributes["redaction.masked.bearer_token"], true) where IsMatch(attributes["exception.message"], "\\[REDACTED:bearer_token\\]") or IsMatch(status.message, "\\[REDACTED:bearer_token\\]")'
+          - 'set(attributes["redaction.masked.api_key"], true) where IsMatch(attributes["exception.message"], "\\[REDACTED:api_key\\]") or IsMatch(status.message, "\\[REDACTED:api_key\\]")'
+          - 'set(attributes["redaction.masked.credential"], true) where IsMatch(attributes["exception.message"], "\\[REDACTED:credential\\]") or IsMatch(status.message, "\\[REDACTED:credential\\]")'
+          - 'set(attributes["redaction.masked.email"], true) where IsMatch(attributes["exception.message"], "\\[REDACTED:email\\]") or IsMatch(status.message, "\\[REDACTED:email\\]")'
+
+  # Backstop for attribute values: the redaction processor masks anything the
+  # transform rules missed that looks like a key or token, and adds
+  # redaction.masked.count / redaction.masked.keys to the span.
+  redaction/backstop:
+    allow_all_keys: true
+    blocked_values:
+      - "\\b(?:sk|pk|rk)[-_][A-Za-z0-9_-]{16,}"
+      - "\\bAKIA[0-9A-Z]{16}\\b"
+      - "\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}"
+    summary: info
+
 exporters:
   otlp/jaeger:
     endpoint: jaeger:4317
@@ -19,8 +71,10 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
+      processors: [transform/redact, redaction/backstop]
       exporters: [otlp/jaeger]
 # Metrics bypass the collector: they go OTLP/JSON straight to Prometheus 3's
 # native receiver (/api/v1/otlp/v1/metrics, enabled via --web.enable-otlp-receiver).
 # The prometheusremotewrite exporter path was flaky here (out-of-order rejections
-# on fresh stores) and adds no value for a local demo.
+# on fresh stores) and adds no value for a local demo. Seeded metrics carry no
+# free text, so there is nothing to redact on that path.

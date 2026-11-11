@@ -263,6 +263,22 @@ function renderPrivacy(r) {
       ${(v.signatures || []).map((s, i) => renderChecks(`reply signature #${i + 1}`, s.checks)).join("")}
       ${a.reportSha256 ? `<p class="muted mono">attestation report sha256 ${esc(a.reportSha256)}</p>` : ""}`;
   }
+  if (p.redaction) {
+    const rd = p.redaction;
+    const kinds = [...new Set([...Object.keys(rd.collector || {}), ...Object.keys(rd.server || {})])].sort();
+    const rows = kinds
+      .map((k) => `<tr><td class="mono">${esc(k)}</td><td>${esc(rd.collector?.[k] || 0)}</td><td>${esc(rd.server?.[k] || 0)}</td></tr>`)
+      .join("");
+    attest =
+      `<h3>redaction manifest (kinds and counts, never values)</h3>` +
+      (kinds.length
+        ? `<table class="spans"><thead><tr><th>kind</th><th>masked in collector</th><th>masked in server</th></tr></thead><tbody>${rows}</tbody></table>`
+        : '<p class="muted">no secrets matched any rule in this evidence.</p>') +
+      (rd.totals?.server
+        ? '<p class="muted">The server had to mask some values itself: they reached it unmasked (paste mode, or a pattern the collector missed).</p>'
+        : "") +
+      attest;
+  }
   if (p.model) {
     attest += `<h3>response metadata</h3><pre class="raw">${esc(
       JSON.stringify({ model: p.model, responseId: p.responseId, usage: p.usage, modelMs: p.modelMs, attempts: p.attempts }, null, 2),

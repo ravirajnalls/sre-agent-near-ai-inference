@@ -9,7 +9,8 @@
   },
   "scripts": {
     "start": "node server.js",
-    "seed": "node seed/seed-incident.js"
+    "seed": "node seed/seed-incident.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",

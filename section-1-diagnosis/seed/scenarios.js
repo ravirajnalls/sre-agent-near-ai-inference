@@ -332,6 +332,69 @@ const inventoryCrashloop = (windowMs, n) => ({
   ],
 });
 
+// Redaction demo: the same kind of auth outage, but the error text carries
+// planted FAKE secrets (a DSN with a password, a JWT, an API key, a customer
+// email). The collector must mask every one before Jaeger stores it.
+const authSecretsLeak = (windowMs, n) => ({
+  traces: Array.from({ length: n }, (_, i) => ({
+    startMs: Date.now() - windowMs + ((i + 1) * windowMs) / (n + 1),
+    tree: {
+      service: "checkout",
+      name: "POST /api/login",
+      kind: "server",
+      durationMs: 820 + Math.floor(Math.random() * 300),
+      error: true,
+      exception: {
+        type: "com.shop.auth.AuthUnavailableException",
+        message:
+          "auth-service returned 503 for customer jane.doe@example.com (Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjdXN0LTQ0MTIifQ.ZmFrZS1zaWduYXR1cmUtZm9yLWRlbW8)",
+      },
+      attrs: {
+        "http.route": "/api/login",
+        "http.method": "POST",
+        "http.status_code": 503,
+        "enduser.id": "jane.doe@example.com",
+        "http.request.header.authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjdXN0LTQ0MTIifQ.ZmFrZS1zaWduYXR1cmUtZm9yLWRlbW8",
+      },
+      children: [
+        {
+          service: "auth-service",
+          name: "POST /v1/session",
+          kind: "server",
+          durationMs: 790,
+          error: true,
+          exception: {
+            type: "org.postgresql.util.PSQLException",
+            message:
+              'FATAL: password authentication failed for user "auth_rw" (dsn=postgres://auth_rw:Winter2026!@auth-db.prod:5432/auth)',
+          },
+          attrs: { "http.route": "/v1/session", "http.status_code": 503, "db.system": "postgresql", "db.name": "auth" },
+          children: [
+            {
+              service: "auth-service",
+              name: "load db credentials",
+              kind: "internal",
+              durationMs: 40,
+              error: true,
+              exception: {
+                type: "com.shop.config.VaultLeaseExpired",
+                message:
+                  "vault lease auth/db-creds expired at rotation; fell back to env AUTH_DB_PASSWORD=Winter2026! (stale) — STRIPE_KEY=sk_live_51FAKEfakeFAKEfake00000000 also loaded",
+              },
+              attrs: { "vault.path": "auth/db-creds", "config.source": "env-fallback" },
+              children: [],
+            },
+          ],
+        },
+      ],
+    },
+  })),
+  metrics: [
+    { name: "http_requests_total", type: "counter", labels: { service: "checkout", status: "503", route: "/api/login" }, points: [1, 6, 30, 88, 170, 262] },
+    { name: "http_requests_total", type: "counter", labels: { service: "checkout", status: "200", route: "/api/login" }, points: [610, 1190, 1560, 1700, 1730, 1741] },
+  ],
+});
+
 export const SCENARIOS = {
   "payment-db-down": {
     title: "payment-db-down",
@@ -356,6 +419,14 @@ export const SCENARIOS = {
     summary: "inventory OOMKilled crash-loop — checkout gRPC deadlines exceeded",
     build: inventoryCrashloop,
     traceCount: 6,
+  },
+  "auth-secrets-leak": {
+    title: "auth-secrets-leak",
+    severity: "SEV1",
+    service: "checkout",
+    summary: "login 503s — auth-db rejects a stale password; error text carries planted FAKE secrets (redaction demo)",
+    build: authSecretsLeak,
+    traceCount: 4,
   },
 };
 

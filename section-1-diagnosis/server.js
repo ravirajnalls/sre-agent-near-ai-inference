@@ -12,6 +12,7 @@ import { triageComplete, tierInfo } from "./near-client.js";
 import { verifyAttestation, verifyReplySignature, attestationMode, VerificationError } from "./attestation.js";
 import { SYSTEM_PROMPT, RETRY_NUDGE, buildUserPrompt, parseReport } from "./prompt.js";
 import { SCENARIOS, seedScenario } from "./seed/scenarios.js";
+import { redactEvidence } from "./redact.js";
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -91,6 +92,11 @@ app.post("/api/triage", async (req, res) => {
       telemetry = await fetchTelemetry({ service, sinceMinutes, maxTraces });
       evidence = buildEvidence(telemetry);
     }
+    // Rule #1, second line: the collector already masked secrets in telemetry;
+    // re-check every string here (paste mode has no collector in front of it).
+    // The manifest records kinds and counts only, never values.
+    const { masked, manifest: redaction } = redactEvidence(evidence);
+    evidence = masked;
     const evidenceChars = JSON.stringify(evidence).length;
     const userPrompt = buildUserPrompt(evidence);
 
@@ -132,6 +138,8 @@ app.post("/api/triage", async (req, res) => {
         mode: evidence.mode,
         service: evidence.mode === "telemetry" ? evidence.window.service : null,
         evidenceChars,
+        maskedByCollector: redaction.totals.collector,
+        maskedByServer: redaction.totals.server,
         attempts,
         modelMs: lastResult?.elapsedMs,
         totalMs: Date.now() - started,
@@ -154,6 +162,7 @@ app.post("/api/triage", async (req, res) => {
         modelMs: lastResult?.elapsedMs,
         attempts,
         verification: { mode: attestation.mode, attestation, signatures },
+        redaction,
         scope:
           (attestation.verified
             ? "Only the model call is private: it ran on a Confidential TEE node whose attestation and reply signatures were verified for this request. "
