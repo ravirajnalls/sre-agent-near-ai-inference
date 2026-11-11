@@ -8,7 +8,7 @@ loadEnv();
 
 import express from "express";
 import { fetchTelemetry, toUi, buildEvidence } from "./telemetry.js";
-import { triageComplete, tierInfo } from "./near-client.js";
+import { triageComplete, tierInfo, MODEL } from "./near-client.js";
 import { verifyAttestation, verifyReplySignature, attestationMode, VerificationError } from "./attestation.js";
 import { SYSTEM_PROMPT, RETRY_NUDGE, CHAT_PROMPT, buildUserPrompt, parseReport, validateAction } from "./prompt.js";
 import { SCENARIOS, seedScenario } from "./seed/scenarios.js";
@@ -35,7 +35,7 @@ app.get("/api/health", async (_req, res) => {
   ]);
   res.json({
     keyConfigured: Boolean(process.env.NEARAI_API_KEY),
-    model: process.env.NEAR_MODEL || "z-ai/glm-5.3-flash",
+    model: MODEL(),
     tier: tierInfo.tier,
     attestationMode: attestationMode(),
     jaeger: j.status === "fulfilled" && j.value.ok ? "ok" : "unreachable",

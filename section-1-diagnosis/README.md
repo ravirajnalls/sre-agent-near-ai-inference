@@ -15,7 +15,7 @@ The highest-signal incident data — error spans, exception messages, failing ro
 | 1 | Telemetry flows through an **OpenTelemetry Collector that masks secrets** (connection strings, JWTs, bearer tokens, API keys, `password=`-style credentials, emails) and tags each span with the *kinds* it masked — never the values. Jaeger only ever stores masked text. | Redact first |
 | 2 | You pick a service + window; the app queries Jaeger (traces) and Prometheus (metrics) and builds a compact evidence object. The server **re-applies the same masking rules** (this also covers paste mode) and records a manifest of kinds and counts. | Redact first |
 | 3 | Before any evidence is sent, the server fetches **NEAR AI's attestation report with a fresh 32-byte nonce** and checks it. In `strict` mode a failed check stops here. | Attested model |
-| 4 | The evidence goes to a **Confidential TEE model on NEAR AI Cloud** (`z-ai/glm-5.3-flash`). The **signature on every reply** is checked against our exact request and response and the attested key. | Attested model |
+| 4 | The evidence goes to a **Confidential TEE model on NEAR AI Cloud** (`Qwen/Qwen3.6-35B-A3B-FP8`, an open-weight model NEAR runs in its own TEE; set `NEAR_MODEL` to change it). The **signature on every reply** is checked against our exact request and response and the attested key. | Attested model |
 | 5 | The model returns a diagnosis and **one proposed fix from a fixed list** of six action types. Code validates it; anything off-list or malformed is rejected. Nothing is applied. | No fix runs without the contract (first gate) |
 | 6 | The **privacy panel** shows the redaction manifest, each attestation and signature check as pass/fail/skip, and the proposed action's status. | Verified panel |
 

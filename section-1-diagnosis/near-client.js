@@ -2,7 +2,7 @@
 // The key lives in NEARAI_API_KEY (env / .env), never in the repo, browser or logs.
 
 export const BASE = () => process.env.NEAR_BASE_URL || "https://cloud-api.near.ai/v1";
-export const MODEL = () => process.env.NEAR_MODEL || "z-ai/glm-5.3-flash";
+export const MODEL = () => process.env.NEAR_MODEL || "Qwen/Qwen3.6-35B-A3B-FP8";
 
 function apiKey() {
   const key = process.env.NEARAI_API_KEY;
@@ -14,7 +14,7 @@ function apiKey() {
 
 function extraBody() {
   const raw = process.env.NEAR_EXTRA_BODY;
-  if (!raw) return { enable_thinking: false };
+  if (!raw) return { enable_thinking: false, chat_template_kwargs: { enable_thinking: false } };
   try {
     const v = JSON.parse(raw);
     return v && typeof v === "object" && !Array.isArray(v) ? v : {};
@@ -51,10 +51,9 @@ export async function triageComplete(messages, opts = {}) {
     model: MODEL(),
     messages,
     temperature: opts.temperature ?? 0.2,
-    // GLM 5.3 Flash always reasons on NEAR AI Cloud (measured Nov 11: no flag stops it).
-    // Top-level enable_thinking:false at least returns the reasoning in a separate
-    // reasoning_content field, so `content` holds only the answer and parses cleanly.
-    // (chat_template_kwargs:{enable_thinking:false} mixed the reasoning into content.)
+    // Thinking off. Measured Nov 11 on NEAR AI Cloud: Qwen3.6-35B-A3B answers a triage
+    // prompt in <1s with both flags below; z-ai/glm-5.3-flash ignores them and reasons
+    // for minutes on a full incident (too slow for a live demo).
     // Override with NEAR_EXTRA_BODY='{"...":...}' in .env without a code change.
     ...extraBody(),
   };
