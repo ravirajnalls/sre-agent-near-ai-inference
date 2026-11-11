@@ -9,8 +9,6 @@ exporters:
     endpoint: jaeger:4317
     tls:
       insecure: true
-  prometheusremotewrite:
-    endpoint: http://prometheus:9090/api/v1/write
 
 extensions:
   health_check:
@@ -22,6 +20,7 @@ service:
     traces:
       receivers: [otlp]
       exporters: [otlp/jaeger]
-    metrics:
-      receivers: [otlp]
-      exporters: [prometheusremotewrite]
+# Metrics bypass the collector: they go OTLP/JSON straight to Prometheus 3's
+# native receiver (/api/v1/otlp/v1/metrics, enabled via --web.enable-otlp-receiver).
+# The prometheusremotewrite exporter path was flaky here (out-of-order rejections
+# on fresh stores) and adds no value for a local demo.

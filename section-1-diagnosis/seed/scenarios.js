@@ -3,6 +3,12 @@
 // All services, exceptions and numbers are fictional.
 
 const COLLECTOR = () => process.env.OTEL_COLLECTOR_URL || "http://localhost:4318";
+// Metrics go straight to Prometheus 3's native OTLP receiver: the collector's
+// prometheusremotewrite exporter 400s with "out of order sample" on our
+// multi-point cumulative series (its OTel→Prom conversion reorders), so the
+// collector stays in the traces path only.
+const METRICS_TARGET = () =>
+  process.env.PROM_OTLP_URL || "http://localhost:9090/api/v1/otlp/v1/metrics";
 
 // proto3-JSON encodes enums as their string names — integer enums are invalid
 // and are what corrupted the first seeding attempt (service showed as "undefined").
@@ -30,7 +36,8 @@ function attr(k, v) {
   return { key: k, value };
 }
 
-/** Build one OTLP span from a compact spec. */
+/** Build one OTLP span from a compact spec. Returns { service, span } —
+ *  service stays OUT of the wire object (unknown fields can break strict parsers). */
 function makeSpan({ traceId, spanId, parentSpanId, service, name, kind, startMs, durationMs, attrs = {}, exception = null, error = false }) {
   const attributes = Object.entries(attrs).map(([k, v]) => attr(k, v));
   const events = [];
@@ -63,15 +70,15 @@ function makeSpan({ traceId, spanId, parentSpanId, service, name, kind, startMs,
       : { code: "STATUS_CODE_OK" },
   };
   if (parentSpanId) span.parentSpanId = parentSpanId;
-  return span;
+  return { service, span };
 }
 
-/** Walk a span tree, assigning ids and timing, returning flat OTLP spans. */
+/** Walk a span tree, assigning ids and timing, returning [{ service, span }] pairs. */
 function buildSpans(root, { traceId, startMs }) {
-  const spans = [];
+  const out = [];
   const walk = (node, parentSpanId, start, duration) => {
     const spanId = hex(16);
-    spans.push(
+    out.push(
       makeSpan({
         traceId,
         spanId,
@@ -93,14 +100,14 @@ function buildSpans(root, { traceId, startMs }) {
     }
   };
   walk(root, null, startMs, root.durationMs);
-  return spans;
+  return out;
 }
 
-async function pushTrace(spans) {
+async function pushTrace(pairs) {
   const byService = new Map();
-  for (const s of spans) {
-    if (!byService.has(s.service)) byService.set(s.service, []);
-    byService.get(s.service).push(s);
+  for (const { service, span } of pairs) {
+    if (!byService.has(service)) byService.set(service, []);
+    byService.get(service).push(span);
   }
   const resourceSpans = [...byService.entries()].map(([service, svcSpans]) => ({
     resource: { attributes: [attr("service.name", service)] },
@@ -114,45 +121,47 @@ async function pushTrace(spans) {
   if (!res.ok) throw new Error(`OTel collector trace push HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`);
 }
 
-async function pushMetrics(metrics, startMs, stepMs) {
+async function pushMetrics(metrics, startMs, stepMs, opts = {}) {
+  // IMPORTANT: all points of a series go in ONE remote-write request.
+  // The collector's exporter queue fans out across consumers, so splitting a
+  // series' points across requests can reorder them in flight — Prometheus then
+  // rejects the older sample as "out of order". Within a single request,
+  // Prometheus appends samples in payload order, so ascending timeUnixNano is safe.
   const steps = Math.max(...metrics.map((m) => m.points.length));
-  let pushes = 0;
-  for (let i = 0; i < steps; i++) {
-    const ts = startMs + i * stepMs;
-    const payload = metrics
-      .filter((m) => i < m.points.length)
-      .map((m) => {
-        const dataPoints = [
-          {
-            attributes: Object.entries(m.labels).map(([k, v]) => attr(k, v)),
-            ...(m.type === "counter" ? { startTimeUnixNano: String(Math.round(startMs * 1e6)) } : {}),
-            timeUnixNano: String(Math.round(ts * 1e6)),
-            asDouble: m.points[i],
-          },
-        ];
-        return m.type === "counter"
-          ? { name: m.name, sum: { isMonotonic: true, aggregationTemporality: "AGGREGATION_TEMPORALITY_CUMULATIVE", dataPoints } }
-          : { name: m.name, gauge: { dataPoints } };
+  const payload = metrics.map((m) => {
+    const dataPoints = [];
+    for (let i = 0; i < m.points.length; i++) {
+      const ts = startMs + i * stepMs;
+      dataPoints.push({
+        attributes: Object.entries(m.labels).map(([k, v]) => attr(k, v)),
+        ...(m.type === "counter" && (i === 0 || opts.startOnEvery) && !opts.stripStart
+          ? { startTimeUnixNano: String(Math.round(startMs * 1e6)) }
+          : {}),
+        timeUnixNano: String(Math.round(ts * 1e6)),
+        asDouble: m.points[i],
       });
-    if (!payload.length) continue;
-    const body = {
+    }
+    return m.type === "counter"
+      ? { name: m.name, sum: { isMonotonic: true, aggregationTemporality: "AGGREGATION_TEMPORALITY_CUMULATIVE", dataPoints } }
+      : { name: m.name, gauge: { dataPoints } };
+  });
+  const res = await fetch(METRICS_TARGET(), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
       resourceMetrics: [
         {
           resource: { attributes: [attr("service.name", "seed")] },
           scopeMetrics: [{ scope: { name: "attested-agent-sandbox-seed" }, metrics: payload }],
         },
       ],
-    };
-    const res = await fetch(`${COLLECTOR()}/v1/metrics`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`OTel collector metric push HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`);
-    pushes++;
-  }
-  return pushes;
+    }),
+  });
+  const text = await res.text();
+  if (!res.ok) return { status: res.status, error: text.slice(0, 200) };
+  return { status: res.status, ok: true };
 }
+export { pushMetrics as pushMetricsRaw };
 
 // ---------------------------------------------------------------------------
 // Scenarios — all synthetic.

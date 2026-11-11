@@ -9,9 +9,11 @@ services:
       - "16686:16686"   # UI + query API
 
   prometheus:
-    image: prom/prometheus:v2.55.1
+    image: prom/prometheus:v3.16.0
     command:
       - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-remote-write-receiver
+      - --web.enable-otlp-receiver
       - --web.enable-lifecycle
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
