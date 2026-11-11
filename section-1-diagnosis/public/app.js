@@ -231,6 +231,7 @@ function renderReport(r) {
     </div>
     ${evidence ? `<h3>evidence</h3><ul class="ev">${evidence}</ul>` : ""}
     ${blast ? `<h3>blast radius</h3><div class="chips">${blast}</div><p>${esc(rep.blastRadius?.summary || "")}</p>` : ""}
+    ${renderAction(r.actionCheck)}
     ${actions ? `<h3>next actions</h3><ol class="actions">${actions}</ol>` : ""}
     ${alternates ? `<h3>alternates</h3><ul class="alts">${alternates}</ul>` : ""}
     ${followUps ? `<h3>follow-ups</h3><ul class="fu">${followUps}</ul>` : ""}`;
@@ -247,6 +248,20 @@ function renderChecks(title, checks) {
     )
     .join("");
   return `<h3>${esc(title)}</h3><ul class="checks">${rows}</ul>`;
+}
+
+function renderAction(ac) {
+  if (!ac) return "";
+  const a = ac.action;
+  const badge =
+    ac.status === "valid"
+      ? '<span class="vbadge ok">on the fixed list · valid</span>'
+      : '<span class="vbadge bad">rejected by the runtime</span>';
+  const body = a
+    ? `<code class="cmd">${esc(a.type)} ${esc(a.namespace)}/${esc(a.target)} ${esc(JSON.stringify(a.params))}</code>`
+    : `<ul class="checks">${(ac.reasons || []).map((x) => `<li class="chk fail"><span class="mono">✗</span> ${esc(x)}</li>`).join("")}</ul>`;
+  return `<h3>proposed fix (one action, fixed list)</h3><div>${badge}</div>${body}
+    <p class="muted">Not applied. In Section 2 a valid action goes to the NEAR contract, which approves, parks or rejects it; only the executor can change the cluster.</p>`;
 }
 
 function renderPrivacy(r) {

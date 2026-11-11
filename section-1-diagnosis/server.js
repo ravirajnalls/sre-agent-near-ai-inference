@@ -10,7 +10,7 @@ import express from "express";
 import { fetchTelemetry, toUi, buildEvidence } from "./telemetry.js";
 import { triageComplete, tierInfo } from "./near-client.js";
 import { verifyAttestation, verifyReplySignature, attestationMode, VerificationError } from "./attestation.js";
-import { SYSTEM_PROMPT, RETRY_NUDGE, buildUserPrompt, parseReport } from "./prompt.js";
+import { SYSTEM_PROMPT, RETRY_NUDGE, buildUserPrompt, parseReport, validateAction } from "./prompt.js";
 import { SCENARIOS, seedScenario } from "./seed/scenarios.js";
 import { redactEvidence } from "./redact.js";
 
@@ -130,6 +130,10 @@ app.post("/api/triage", async (req, res) => {
       report = parseReport(rawText);
     }
 
+    // Rule #3 (first gate): only an action from the fixed list, with well-formed
+    // params, may go forward. Section 2 submits a "valid" action to the NEAR contract.
+    const actionCheck = report ? validateAction(report.action) : null;
+
     // Logs carry sizes and timings only — never telemetry or model output.
     console.log(
       JSON.stringify({
@@ -144,6 +148,7 @@ app.post("/api/triage", async (req, res) => {
         modelMs: lastResult?.elapsedMs,
         totalMs: Date.now() - started,
         parsed: Boolean(report),
+        action: actionCheck ? `${actionCheck.action?.type || "-"}:${actionCheck.status}` : null,
         attestationVerified: attestation.verified,
         signaturesVerified: signatures.every((s) => s.verified),
       }),
@@ -151,6 +156,7 @@ app.post("/api/triage", async (req, res) => {
 
     res.json({
       report,
+      actionCheck,
       rawText: report ? undefined : rawText,
       telemetry: telemetry ? toUi(telemetry) : null,
       privacy: {
