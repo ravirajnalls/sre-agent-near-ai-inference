@@ -94,7 +94,7 @@ Also stated plainly in the UI: **only the model call is private.** Your laptop, 
 | `otel-collector.config.yaml` | `transform/redact` (OTTL `replace_all_patterns` / `replace_pattern` on span and event attributes and status messages, plus `redaction.masked.<kind>` tags) and a `redaction` processor backstop |
 | `redact.js` | the same rules applied server-side; builds the redaction manifest |
 | `attestation.js` | nonce, report checks, NRAS, EIP-191 reply-signature recovery (`@noble/curves`, `@noble/hashes`) |
-| `near-client.js` | the only place the API key is read: chat completions, attestation report, reply signature, 60 s timeouts |
+| `near-client.js` | the only place the API key is read: chat completions, attestation report, reply signature, timeouts (150 s for the model call, `NEAR_TIMEOUT_MS`) |
 | `prompt.js` | system prompt, report schema, fixed action list and `validateAction` |
 | `server.js`, `public/` | Express app and the ops-console UI |
 | `test/` | `npm test`: planted secrets never survive; off-list or malformed actions are rejected |

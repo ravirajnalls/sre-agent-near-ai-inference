@@ -188,7 +188,7 @@ function renderTelemetry(t) {
 function renderReportBusy(bundleMode) {
   $("report").innerHTML = bundleMode
     ? '<p class="muted">sending the bundle into the Confidential TEE …</p>'
-    : '<p class="muted">assembling evidence and consulting the Confidential TEE … this can take ~10–30 seconds.</p>';
+    : '<p class="muted">assembling evidence and consulting the Confidential TEE … the model reasons first, so this can take up to a minute or two.</p>';
 }
 
 function renderReport(r) {

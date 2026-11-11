@@ -12,6 +12,18 @@ function apiKey() {
   return key;
 }
 
+function extraBody() {
+  const raw = process.env.NEAR_EXTRA_BODY;
+  if (!raw) return { enable_thinking: false };
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch {
+    console.log("NEAR_EXTRA_BODY is not valid JSON — ignoring it");
+    return {};
+  }
+}
+
 /** fetch with a hard timeout and a readable error when it fires. */
 async function timedFetch(url, init, timeoutMs, what) {
   try {
@@ -39,13 +51,18 @@ export async function triageComplete(messages, opts = {}) {
     model: MODEL(),
     messages,
     temperature: opts.temperature ?? 0.2,
-    // GLM 5.3 Flash thinks by default; turn it off for demo latency (per hackpack).
-    chat_template_kwargs: { enable_thinking: false },
+    // GLM 5.3 Flash always reasons on NEAR AI Cloud (measured Nov 11: no flag stops it).
+    // Top-level enable_thinking:false at least returns the reasoning in a separate
+    // reasoning_content field, so `content` holds only the answer and parses cleanly.
+    // (chat_template_kwargs:{enable_thinking:false} mixed the reasoning into content.)
+    // Override with NEAR_EXTRA_BODY='{"...":...}' in .env without a code change.
+    ...extraBody(),
   };
   const requestBody = JSON.stringify(body);
   const started = Date.now();
   // ADR-007: a hung model call must not hang the request (or the demo).
-  const timeoutMs = opts.timeoutMs ?? (Number(process.env.NEAR_TIMEOUT_MS) || 60_000);
+  // Reasoning on a full incident prompt can take a minute or more.
+  const timeoutMs = opts.timeoutMs ?? (Number(process.env.NEAR_TIMEOUT_MS) || 150_000);
   const { res, text } = await timedFetch(
     `${BASE()}/chat/completions`,
     {
