@@ -18,10 +18,13 @@ services:
       - --web.enable-lifecycle
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    # Metrics live in memory only (tmpfs instead of the image's on-disk volume),
-    # so a restart wipes them (./reset-telemetry.sh) and nothing is written to disk.
-    tmpfs:
-      - /prometheus
+      # Metrics live in memory only (tmpfs instead of the image's on-disk volume),
+      # so a restart wipes them (reset-telemetry.sh) and nothing is written to disk.
+      # Mode 1777: Prometheus runs as `nobody` and must be able to write here.
+      - type: tmpfs
+        target: /prometheus
+        tmpfs:
+          mode: 01777
     ports:
       - "9090:9090"
 
