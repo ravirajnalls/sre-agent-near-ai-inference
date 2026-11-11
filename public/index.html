@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Triage Copilot — private incident triage</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="logo">▲</span> TRIAGE COPILOT</div>
+    <div class="tagline">private incident triage on confidential compute</div>
+    <div class="statusbar">
+      <span><span class="dot" id="dot-key"></span>key</span>
+      <span><span class="dot" id="dot-jaeger"></span>jaeger</span>
+      <span><span class="dot" id="dot-prom"></span>prometheus</span>
+      <span class="badge-tee" id="model-badge">…</span>
+    </div>
+  </header>
+
+  <main>
+    <aside>
+      <section class="card">
+        <h2>Incident query</h2>
+        <label>service
+          <input id="service" value="checkout" spellcheck="false">
+        </label>
+        <label>window
+          <select id="since">
+            <option value="15">15 min</option>
+            <option value="30" selected>30 min</option>
+            <option value="60">60 min</option>
+            <option value="120">120 min</option>
+          </select>
+        </label>
+        <label>max traces
+          <select id="maxtraces">
+            <option value="10">10</option>
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+          </select>
+        </label>
+        <div class="btnrow">
+          <button id="btn-telemetry" class="btn">Fetch telemetry</button>
+          <button id="btn-triage" class="btn primary">Triage privately</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Seed a synthetic incident</h2>
+        <div id="scenarios"><p class="muted">loading…</p></div>
+      </section>
+
+      <section class="card">
+        <h2>Paste a bundle instead</h2>
+        <textarea id="bundle" rows="6" spellcheck="false"
+          placeholder="Paste raw logs, kubectl describe, alerts — triaged through the same TEE call."></textarea>
+        <div class="btnrow">
+          <button id="btn-bundle" class="btn">Triage pasted bundle</button>
+        </div>
+      </section>
+
+      <p class="note">All telemetry in this demo is synthetic.<br>Nothing you query is stored or logged.</p>
+    </aside>
+
+    <div class="content">
+      <section class="card" id="sec-telemetry">
+        <h2>1 · Telemetry <span class="muted" id="telemetry-meta"></span></h2>
+        <div id="telemetry"><p class="muted">Fetch telemetry to see the latest error data for a service.</p></div>
+      </section>
+
+      <section class="card" id="sec-report">
+        <h2>2 · Triage report <span class="muted" id="report-meta"></span></h2>
+        <div id="report"><p class="muted">No report yet — pick a service and hit “Triage privately”.</p></div>
+      </section>
+
+      <section class="card" id="sec-privacy">
+        <h2>3 · Privacy</h2>
+        <div id="privacy"><p class="muted">Privacy details appear with the first triage call.</p></div>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    NEAR Private AI Hackathon · Build City NYC · Confidential TEE via NEAR AI Cloud
+  </footer>
+
+  <div id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

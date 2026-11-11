@@ -1,0 +1,17 @@
+{
+  "name": "triage-copilot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Private incident triage on Confidential TEE models via NEAR AI Cloud",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node seed/seed-incident.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
